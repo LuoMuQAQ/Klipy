@@ -1,7 +1,7 @@
 {
-  "name": "vouch",
+  "name": "klipy",
   "version": "1.0.0",
-  "description": "Vouch - Windows 轻量级 2FA / TOTP 身份验证器 (HeroUI + Electron + C#)",
+  "description": "Klipy - Windows 轻量级 2FA / TOTP 身份验证器 (HeroUI + Electron + C#)",
   "scripts": {
     "dev:vite": "vite",
     "dev": "concurrently -k \"npm run dev:vite\" \"npm run dev:electron\"",

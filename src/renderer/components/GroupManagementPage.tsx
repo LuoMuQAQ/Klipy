@@ -175,7 +175,7 @@ export function GroupManagementPage({ groups, accounts, onChanged }: GroupManage
                 color="primary"
                 startContent={!creating ? <Plus size={15} strokeWidth={2.2} /> : undefined}
                 isLoading={creating}
-                isDisabled={!name.trim() || groups.length >= 50}
+                isDisabled={!name.trim()}
                 onPress={() => void create()}
                 className="h-9 px-3.5 font-medium flex-shrink-0"
               >
@@ -201,7 +201,7 @@ export function GroupManagementPage({ groups, accounts, onChanged }: GroupManage
       <div className="flex items-center justify-between px-4 pt-1.5 pb-2">
         <span className="text-xs font-semibold text-default-600">分组列表</span>
         <span className="rounded-full bg-default-100 px-2 py-0.5 text-[11px] font-medium tabular-nums text-default-500">
-          {groups.length} / 50
+          {groups.length} 个
         </span>
       </div>
 

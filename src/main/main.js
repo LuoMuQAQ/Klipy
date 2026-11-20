@@ -68,7 +68,7 @@ async function createWindow() {
     fullscreenable: false,
     show: false,
     backgroundColor: '#f5f7fa',
-    title: 'Vouch',
+    title: 'Klipy',
     icon: path.join(root, 'public', 'app-icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -97,7 +97,7 @@ app.whenReady().then(() => {
   registerIpc();
   return createWindow();
 }).catch((error) => {
-  dialog.showErrorBox('Vouch 启动失败', error.message);
+  dialog.showErrorBox('Klipy 启动失败', error.message);
   app.quit();
 });
 app.on('window-all-closed', () => app.quit());

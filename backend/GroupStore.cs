@@ -12,7 +12,6 @@ namespace AuthenticatorBackend
     /// </summary>
     public class GroupStore
     {
-        private const int MaxGroups = 50;
         private const int MaxNameLength = 20;
 
         private readonly string _filePath;
@@ -85,10 +84,6 @@ namespace AuthenticatorBackend
             string clean = NormalizeName(name);
             lock (_lock)
             {
-                if (_groups.Count >= MaxGroups)
-                {
-                    throw new InvalidOperationException($"最多只能创建 {MaxGroups} 个分组。");
-                }
                 if (HasSameName(clean, null))
                 {
                     throw new InvalidOperationException("分组名称已存在。");
@@ -114,11 +109,6 @@ namespace AuthenticatorBackend
                 var existing = _groups.FirstOrDefault(g =>
                     string.Equals(g.Name, clean, StringComparison.OrdinalIgnoreCase));
                 if (existing != null) return ToDto(existing);
-
-                if (_groups.Count >= MaxGroups)
-                {
-                    throw new InvalidOperationException($"最多只能创建 {MaxGroups} 个分组。");
-                }
 
                 var group = new GroupRecord
                 {

@@ -74,7 +74,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           <>
             <Image
               src="./logo.svg"
-              alt="Vouch Logo"
+              alt="Klipy Logo"
               width={20}
               height={20}
               radius="none"
@@ -82,7 +82,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               className="pointer-events-none"
             />
             <span className="text-[15px] font-semibold text-foreground tracking-tight">
-              Vouch
+              Klipy
             </span>
           </>
         )}

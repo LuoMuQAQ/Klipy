@@ -1,10 +1,10 @@
 # 项目交接文档 (Handoff Document)
 
-**项目名称**：Vouch（Windows 轻量级 2FA / TOTP 身份验证器）  
+**项目名称**：Klipy（Windows 轻量级 2FA / TOTP 身份验证器）  
 **当前版本**：`1.0.0`  
 **技术栈**：Electron 33.4.11 + React 18 + TypeScript + HeroUI (`@heroui/react` 2.8.10) + Tailwind CSS 3 + Framer Motion 11 + C# (.NET 10)  
 **文档日期**：2026-11-20  
-**最近更新**：2026-11-20 20:10（定名 Vouch、平面扁平式 Logo 重制、分组管理页 UI 优化并推送 GitHub 公开仓库）  
+**最近更新**：2026-11-20 20:16（定名 Klipy、移除分组数量上限、平面扁平式 Logo 重制、分组管理页 UI 优化并同步 GitHub 公开仓库）  
 **当前状态**：可运行；`dist/` 与 `bin/backend/` 已按最新代码重新构建并通过验证。  
 
 > ⚠️ **不要清空 `%APPDATA%\WindowsAuthenticatorDemo`**：其中已是用户的真实数据（9 个账号，均在 `Google` 分组）。需要测试时请设置 `AUTHENTICATOR_DATA_DIR` 指向临时目录。
@@ -31,7 +31,7 @@
   - **账号头像**：内置 85 个常见品牌图标（`public/brands/si/<slug>.svg`，24×24 path + 官方品牌色），匹配时先看服务名称（issuer）、再看账号字段，因此「未命名 / Muse」这类迁移账号也能拿到图标；未识别服务或图片加载失败时使用名称缩写。素材出处见 [`public/brands/SOURCES.md`](public/brands/SOURCES.md)。
 - **分组管理**（账号必须归属分组，不提供「未分组」）：
   - 点击标题栏文件夹按钮进入独立「分组管理」页：标题栏左侧变为返回按钮，页面可**新建、重命名、删除**分组，并显示每个分组下的账号数。
-  - 分组名称校验：非空、最长 20 字符、不区分大小写去重；最多 50 个分组。错误提示由 `formatError` 剥离 Electron IPC 包装后直接展示后端中文文案。
+  - 分组名称校验：非空、最长 20 字符、不区分大小写去重；不限制分组数量。错误提示由 `formatError` 剥离 Electron IPC 包装后直接展示后端中文文案。
   - 删除分组前弹确认框，**组内账号会随分组一并删除**（确认框会标明数量与不可撤销）；重命名在同一位置内联编辑（Enter 保存、Esc 取消）。
   - 数据保存在 `%APPDATA%\WindowsAuthenticatorDemo\groups.json`；账号通过 `accounts.json` 中的 `groupId` 字段引用分组，后端在启动时会把「没有分组 / 分组已不存在」的历史账号收进「默认分组」，避免账号从界面上消失。
   - 账号列表顶部出现**分组筛选栏**（`GroupFilterBar`）：只列出各分组胶囊按钮（带数量），没有「全部」也没有「未分组」；进入列表时自动落在某个有效分组（优先第一个有账号的分组）。
@@ -221,7 +221,7 @@
 
 1. **密钥存储安全性**：目前为 Demo 阶段，账号 `secret` 以明文 JSON 存储在 `%APPDATA%\WindowsAuthenticatorDemo\accounts.json`（分组只存名称，不含密钥）。后续上线生产前建议在 C# 层使用 Windows DPAPI（`System.Security.Cryptography.ProtectedData`）对 `Secret` 字段或整文件进行本机用户态加密。
 2. **迁移导入范围**：`parsemigration` 只导入 TOTP 且算法非 MD5 的条目，HOTP 账号会被计入 `skipped` 并跳过；Google Authenticator 的分批导出（`batchSize > 1`）需要用户分别导入每个链接，当前不做跨批次合并。
-3. **分组容量与排序**：分组最多 50 个、名称最长 20 字符；分组本身按创建时间排序，不支持拖拽调整分组顺序。因为账号必须归属分组，**删除分组会连带删除组内账号**（确认框会显示数量），目前没有「移到其他分组」的批量操作；如需保留账号，请先在「编辑」里逐个改到其它分组。
+3. **分组容量与排序**：分组数量不设上限，名称最长 20 字符；分组本身按创建时间排序，不支持拖拽调整分组顺序。因为账号必须归属分组，**删除分组会连带删除组内账号**（确认框会显示数量），目前没有「移到其他分组」的批量操作；如需保留账号，请先在「编辑」里逐个改到其它分组。
 4. **自定义刷新周期兼容**：后端支持任意 `period`（如 60 秒），但当前前端 `<TotpProgress>` 动画与刷新定时器固定按 `30000ms` 周期计算。若后续在界面重新开放非 30 秒周期录入，需改为基于各账号 `period` 独立计算或分类展示倒计时。
 5. **独立打包与分发**：当前 `npm run build:backend` 采用框架依赖发布（依赖目标机器存在 .NET 10 运行时）。若需打包为独立安装包给无 .NET 环境的用户使用，可将 `build:backend` 调整为 `dotnet publish backend/AuthenticatorBackend.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o bin/backend`，并引入 `electron-builder` 配置将 `dist/` 与 `bin/backend/` 一起打入安装包的 `resources`。
 6. **测试覆盖**：当前以构建检查、脚本化协议验证与无头渲染校验为主，尚未建立自动化单元测试套件。建议后续为 `TotpEngine.cs` 补充 RFC 6238 / RFC 4226 标准测试向量单元测试，并为 `MigrationParser` 增加固定样本测试。
@@ -293,20 +293,21 @@
   - 无头 Chrome（mock bridge，400×620@2x）16 项断言全 PASS：筛选栏仅 Google/AI 两个分组且无「未分组/全部」、Muse 与 OpenAI/Google/Mozilla 图标全部解码成功、`0penai` 命中 OpenAI、添加弹窗分组必选且提交时自动带上当前分组、删除确认显示「5 个账号…一并删除」、无分组时隐藏 `+` 且显示引导；截图见临时目录（不随仓库分发）。
   - 用户真实数据（9 个账号 + Google 分组）未被测试触碰。
 
-## 12. 品牌定名（Vouch）、平面扁平式 Logo 与分组管理 UI 优化（2026-11-20 晚）
+## 12. 品牌定名（Klipy）、平面扁平式 Logo、分组管理 UI 优化与移除分组上限（2026-11-20 晚）
 
-- **产品定名**：**Vouch**
-  - 纯英文短词，意为「证明、核验、担保可信」，不含 `auth`，与轻量化桌面 2FA 工具气质契合。
+- **产品定名**：**Klipy**
+  - 纯英文短词，融合 **K**ey（动态密钥）与 C**lip**（单击即复制到剪贴板），不含 `auth`，轻快好记。
   - 数据目录保持 `%APPDATA%\WindowsAuthenticatorDemo` 不变，确保用户已有真实数据不受影响。
 - **现代化平面扁平式 Logo**：
-  - 彻底移除旧版深色拟物玻璃、渐变与发光滤镜，重制为仅由 6 个基础几何图元构成的纯平 2D 矢量 SVG（`viewBox="0 0 512 512"`，约 0.98 KB）：
+  - 彻底移除旧版深色拟物玻璃、渐变与发光滤镜，重制为仅由 6 个基础几何图元构成的纯平 2D 矢量 SVG（`viewBox="0 0 512 512"`，约 0.97 KB）：
     - HeroUI 靛蓝圆角方形底托（`#4F46E5`）+ 纯平轨道（`#6860F0`）+ 270° 白色倒计时环（`#FFFFFF`）+ 右上 1:30 翠绿时间脉冲点（`#34D399`）+ 居中实心几何钥匙孔（`#FFFFFF`）。
   - 同步更新 `logo.svg`、`public/logo.svg`、`src/renderer/assets/logo.svg`，导出透明底 `512×512` 的 `public/app-icon.png` 作为 Electron 窗口与任务栏图标，并重绘浅色扁平风格的品牌展示图 `logo-preview.png`。
-- **分组管理页 UI 优化（`GroupManagementPage.tsx`）**：
-  - 删除底部「账号必须属于某个分组；删除分组会同时删除组内账号。」提示文案（删除确认弹窗内仍保留清晰的级联删除警示）。
-  - 顶部新建区收拢为单行紧凑卡片（带清除按钮与内联错误提示）；列表项改用 `Folder` 图标配柔和靛蓝圆角底托，统一卡片阴影与悬停反馈；重命名态独立高亮并就地展示校验错误；空状态与删除确认弹窗同步精细化排版。
+- **分组管理优化与取消上限**：
+  - 后端 `GroupStore.cs` 移除 `MaxGroups = 50` 限制，不再对分组总数设上限。
+  - 前端 `GroupManagementPage.tsx` 移除底部「账号必须属于某个分组；删除分组会同时删除组内账号。」文案及 50 上限禁用逻辑，计数胶囊改为 `{groups.length} 个`；顶部新建区收拢为单行紧凑卡片；列表项改用 `Folder` 图标配柔和靛蓝圆角底托并优化重命名态、空状态与删除确认弹窗。
 - **界面、文档与仓库**：
-  - 更新 `TitleBar.tsx`、`index.html`、`src/main/main.js`、`启动.bat`、`package.json`、`README.md` 与本文档，并初始化 Git 仓库推送至 GitHub 公开仓库。
+  - 更新 `TitleBar.tsx`、`index.html`、`src/main/main.js`、`启动.bat`、`package.json`、`README.md` 与本文档，并同步至 GitHub 公开仓库 `https://github.com/LuoMuQAQ/Klipy`。
 - **验证**：
-  - `npx tsc --noEmit` 与 `npm run build:vite` 均以退出码 `0` 通过。
+  - `npx tsc --noEmit`、`npm run build:vite` 与 `npm run build:backend` 均以退出码 `0` 通过。
+  - 协议测试（临时 `AUTHENTICATOR_DATA_DIR`）：连续创建 55 个分组全部成功，确认无上限限制。
   - 通过无头 Chrome 渲染查验 `logo-preview.png`、主界面标题栏与分组管理页（mock bridge，不触碰 `%APPDATA%\WindowsAuthenticatorDemo`）。
