@@ -83,6 +83,7 @@ export interface AuthenticatorAPI {
   addGroup: (name: string) => Promise<Group>;
   renameGroup: (id: string, name: string) => Promise<Group>;
   deleteGroup: (id: string) => Promise<{ deleted: boolean; removedAccounts: number }>;
+  reorderGroups: (ids: string[]) => Promise<boolean>;
   reorderAccounts: (ids: string[]) => Promise<boolean>;
   exportAccount: (id: string) => Promise<ExportAccountData>;
   copyToClipboard: (text: string) => Promise<boolean> | boolean;

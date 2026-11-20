@@ -53,6 +53,8 @@ export const App: React.FC = () => {
   const [groups, setGroups] = useState<Group[]>([]);
   const accountsRef = useRef<Account[]>([]);
   accountsRef.current = accounts;
+  const groupsRef = useRef<Group[]>([]);
+  groupsRef.current = groups;
 
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<AppView>('accounts');
@@ -63,11 +65,18 @@ export const App: React.FC = () => {
 
   const isDraggingRef = useRef(false);
   const pendingOrderRef = useRef<Account[] | null>(null);
+  const pendingGroupOrderRef = useRef<Group[] | null>(null);
 
   const {
     isOpen: isAddOpen,
     onOpen: onAddOpen,
     onClose: onAddClose,
+  } = useDisclosure();
+
+  const {
+    isOpen: isAddGroupOpen,
+    onOpen: onAddGroupOpen,
+    onClose: onAddGroupClose,
   } = useDisclosure();
 
   const [contextMenu, setContextMenu] = useState<{
@@ -230,6 +239,17 @@ export const App: React.FC = () => {
     window.authenticatorAPI?.reorderAccounts?.(ids);
   };
 
+  const handleReorderGroups = (newOrder: Group[]) => {
+    pendingGroupOrderRef.current = newOrder;
+    setGroups(newOrder);
+  };
+
+  const handleGroupDragEnd = () => {
+    const ids = (pendingGroupOrderRef.current ?? groupsRef.current).map((group) => group.id);
+    pendingGroupOrderRef.current = null;
+    window.authenticatorAPI?.reorderGroups?.(ids);
+  };
+
   const handleContextMenu = (e: React.MouseEvent, account: Account) => {
     e.preventDefault();
     e.stopPropagation();
@@ -249,12 +269,22 @@ export const App: React.FC = () => {
         view={view}
         canAdd={hasGroups}
         onAddOpen={openAddModal}
+        onAddGroupOpen={onAddGroupOpen}
         onGroupsOpen={() => setView('groups')}
         onBack={() => setView('accounts')}
       />
 
       {view === 'groups' ? (
-        <GroupManagementPage groups={groups} accounts={accounts} onChanged={refreshAll} />
+        <GroupManagementPage
+          groups={groups}
+          accounts={accounts}
+          isCreateOpen={isAddGroupOpen}
+          onCreateOpen={onAddGroupOpen}
+          onCreateClose={onAddGroupClose}
+          onReorder={handleReorderGroups}
+          onReorderEnd={handleGroupDragEnd}
+          onChanged={refreshAll}
+        />
       ) : (
         <>
           <TotpProgress onPeriodChange={fetchAccounts} />

@@ -206,6 +206,29 @@ namespace AuthenticatorBackend
                         break;
                     }
 
+                    case "groupreorder":
+                        if (req.Params.HasValue && req.Params.Value.TryGetProperty("ids", out var propGroupIds) && propGroupIds.ValueKind == JsonValueKind.Array)
+                        {
+                            var ids = new List<string>();
+                            foreach (var item in propGroupIds.EnumerateArray())
+                            {
+                                var s = item.GetString();
+                                if (!string.IsNullOrEmpty(s)) ids.Add(s);
+                            }
+                            bool reordered = groupStore.Reorder(ids);
+                            response.Success = reordered;
+                            if (!reordered)
+                            {
+                                response.Error = "分组排序失败。";
+                            }
+                        }
+                        else
+                        {
+                            response.Success = false;
+                            response.Error = "Missing ids array for groupreorder action.";
+                        }
+                        break;
+
                     case "validatesecret":
                         if (req.Params.HasValue)
                         {

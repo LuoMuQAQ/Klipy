@@ -1,9 +1,13 @@
-import { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
   Card,
   CardBody,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
   Input,
   Modal,
   ModalBody,
@@ -11,30 +15,74 @@ import {
   ModalFooter,
   ModalHeader,
   ScrollShadow,
-  Tooltip,
   addToast,
 } from '@heroui/react';
-import { Check, Folder, FolderPlus, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Reorder, useReducedMotion, type Transition } from 'framer-motion';
+import { Folder, FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react';
 import type { Account, Group } from '../types';
 import { formatError } from '../utils/errors';
+
+const REORDER_TRANSITION = {
+  type: 'tween',
+  duration: 0.21,
+  ease: [0.22, 1, 0.36, 1],
+} satisfies Transition;
+const INSTANT_REORDER_TRANSITION = { ...REORDER_TRANSITION, duration: 0 };
+const DROP_TRANSITION = {
+  bounceStiffness: 1600,
+  bounceDamping: 80,
+  restDelta: 0.1,
+  restSpeed: 3,
+};
 
 interface GroupManagementPageProps {
   groups: Group[];
   accounts: Account[];
+  isCreateOpen: boolean;
+  onCreateOpen: () => void;
+  onCreateClose: () => void;
+  onReorder: (newOrder: Group[]) => void;
+  onReorderEnd: () => void;
   /** 分组变更后由外层刷新分组与账号列表。 */
   onChanged: () => Promise<void>;
 }
 
-export function GroupManagementPage({ groups, accounts, onChanged }: GroupManagementPageProps) {
-  const [name, setName] = useState('');
-  const [draft, setDraft] = useState('');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Group | null>(null);
+export function GroupManagementPage({
+  groups,
+  accounts,
+  isCreateOpen,
+  onCreateOpen,
+  onCreateClose,
+  onReorder,
+  onReorderEnd,
+  onChanged,
+}: GroupManagementPageProps) {
+  const reorderTransition = useReducedMotion() ? INSTANT_REORDER_TRANSITION : REORDER_TRANSITION;
+
+  const [newName, setNewName] = useState('');
   const [createError, setCreateError] = useState('');
-  const [renameError, setRenameError] = useState('');
   const [creating, setCreating] = useState(false);
+
+  const [renameTarget, setRenameTarget] = useState<Group | null>(null);
+  const [draft, setDraft] = useState('');
+  const [renameError, setRenameError] = useState('');
   const [renaming, setRenaming] = useState(false);
+
+  const [deleteTarget, setDeleteTarget] = useState<Group | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    group: Group;
+    x: number;
+    y: number;
+  } | null>(null);
+
   const busyRef = useRef(false);
+
+  useEffect(() => {
+    if (isCreateOpen) {
+      setNewName('');
+      setCreateError('');
+    }
+  }, [isCreateOpen]);
 
   const accountCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -46,9 +94,9 @@ export function GroupManagementPage({ groups, accounts, onChanged }: GroupManage
 
   const countFor = (groupId: string) => accountCounts.get(groupId) ?? 0;
 
-  const create = async () => {
+  const handleCreate = async () => {
     if (busyRef.current) return;
-    const clean = name.trim();
+    const clean = newName.trim();
     if (!clean) {
       setCreateError('请输入分组名称。');
       return;
@@ -59,7 +107,7 @@ export function GroupManagementPage({ groups, accounts, onChanged }: GroupManage
     setCreateError('');
     try {
       await window.authenticatorAPI.addGroup(clean);
-      setName('');
+      onCreateClose();
       await onChanged();
       addToast({ title: `已创建分组「${clean}」`, color: 'success', timeout: 1_400 });
     } catch (err) {
@@ -70,20 +118,20 @@ export function GroupManagementPage({ groups, accounts, onChanged }: GroupManage
     }
   };
 
-  const startRename = (group: Group) => {
-    setEditingId(group.id);
+  const openRename = (group: Group) => {
+    setRenameTarget(group);
     setDraft(group.name);
     setRenameError('');
-    setCreateError('');
   };
 
-  const cancelRename = () => {
-    setEditingId(null);
+  const closeRename = () => {
+    if (renaming) return;
+    setRenameTarget(null);
     setRenameError('');
   };
 
-  const commitRename = async () => {
-    if (!editingId || busyRef.current) return;
+  const handleRename = async () => {
+    if (!renameTarget || busyRef.current) return;
     const clean = draft.trim();
     if (!clean) {
       setRenameError('请输入分组名称。');
@@ -94,8 +142,8 @@ export function GroupManagementPage({ groups, accounts, onChanged }: GroupManage
     setRenaming(true);
     setRenameError('');
     try {
-      await window.authenticatorAPI.renameGroup(editingId, clean);
-      setEditingId(null);
+      await window.authenticatorAPI.renameGroup(renameTarget.id, clean);
+      setRenameTarget(null);
       await onChanged();
       addToast({ title: '分组已重命名', color: 'success', timeout: 1_400 });
     } catch (err) {
@@ -127,225 +175,291 @@ export function GroupManagementPage({ groups, accounts, onChanged }: GroupManage
     }
   };
 
+  const handleContextMenu = (e: React.MouseEvent, group: Group) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      group,
+      x: Math.round(e.clientX),
+      y: Math.round(e.clientY),
+    });
+  };
+
   const deleteCount = deleteTarget ? countFor(deleteTarget.id) : 0;
 
   return (
     <div className="flex flex-1 min-h-0 flex-col bg-background">
-      {/* Compact Inline Create Bar */}
-      <div className="px-3 pt-3 pb-2">
-        <Card
-          shadow="none"
-          radius="lg"
-          className="border border-default-200 bg-content1 shadow-[0_1px_2px_rgba(17,24,28,0.04)]"
-        >
-          <CardBody className="gap-2 p-2.5">
-            <div className="flex items-center gap-2">
-              <Input
-                size="sm"
-                radius="md"
-                variant="flat"
-                aria-label="新分组名称"
-                placeholder="输入新分组名称"
-                startContent={<FolderPlus size={15} className="text-default-400 flex-shrink-0" />}
-                value={name}
-                isClearable
-                onClear={() => {
-                  setName('');
-                  setCreateError('');
-                }}
-                onValueChange={(value) => {
-                  setName(value);
-                  if (createError) setCreateError('');
-                }}
-                isDisabled={creating}
-                maxLength={20}
-                classNames={{
-                  base: 'flex-1',
-                  inputWrapper:
-                    'h-9 min-h-9 bg-default-100/80 data-[hover=true]:bg-default-100 group-data-[focus=true]:bg-content1 border border-transparent group-data-[focus=true]:border-primary shadow-none',
-                  input: 'text-[13px]',
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') void create();
-                }}
-              />
-              <Button
-                size="sm"
-                radius="md"
-                color="primary"
-                startContent={!creating ? <Plus size={15} strokeWidth={2.2} /> : undefined}
-                isLoading={creating}
-                isDisabled={!name.trim()}
-                onPress={() => void create()}
-                className="h-9 px-3.5 font-medium flex-shrink-0"
-              >
-                新建
-              </Button>
-            </div>
-            {createError && (
-              <Alert
-                color="danger"
-                variant="flat"
-                title={createError}
-                classNames={{
-                  base: 'py-1.5 px-2.5 items-center',
-                  title: 'text-xs font-medium',
-                }}
-              />
-            )}
-          </CardBody>
-        </Card>
-      </div>
-
-      {/* Section Header */}
-      <div className="flex items-center justify-between px-4 pt-1.5 pb-2">
-        <span className="text-xs font-semibold text-default-600">分组列表</span>
-        <span className="rounded-full bg-default-100 px-2 py-0.5 text-[11px] font-medium tabular-nums text-default-500">
-          {groups.length} 个
-        </span>
-      </div>
-
-      {/* Groups List */}
-      <ScrollShadow className="flex-1 overflow-y-auto px-3 pb-3">
+      {/* Draggable Groups List */}
+      <ScrollShadow className="flex-1 overflow-y-auto px-3 py-3">
         {groups.length === 0 ? (
           <Card
             shadow="none"
             radius="lg"
-            className="mx-auto my-12 max-w-[240px] text-center border border-default-200 bg-content1 shadow-[0_1px_2px_rgba(17,24,28,0.04)]"
+            className="mx-auto my-16 max-w-[230px] text-center border border-default-200 bg-content1 shadow-[0_1px_2px_rgba(17,24,28,0.04)]"
           >
-            <CardBody className="flex flex-col items-center gap-2.5 px-5 py-6">
+            <CardBody className="flex flex-col items-center gap-3 px-5 py-6">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                 <FolderPlus size={20} />
               </div>
               <span className="text-sm font-semibold text-foreground">暂无分组</span>
               <span className="text-xs leading-5 text-default-500">
-                在上方输入名称即可新建第一个分组
+                点击右上角「+」或下方按钮新建分组
               </span>
+              <Button
+                size="sm"
+                color="primary"
+                variant="flat"
+                startContent={<Plus size={14} />}
+                onPress={onCreateOpen}
+              >
+                新建分组
+              </Button>
             </CardBody>
           </Card>
         ) : (
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+          <Reorder.Group
+            axis="y"
+            values={groups}
+            onReorder={onReorder}
+            className="m-0 flex list-none flex-col gap-2.5 p-0"
+          >
             {groups.map((group) => {
-              const isEditing = editingId === group.id;
               const count = countFor(group.id);
               return (
-                <li
+                <Reorder.Item
                   key={group.id}
-                  className={`rounded-large border bg-content1 transition-[border-color,box-shadow,background-color] duration-150 ${
-                    isEditing
-                      ? 'border-primary shadow-[0_4px_14px_rgba(79,70,229,0.12)]'
-                      : 'border-default-200 shadow-[0_1px_2px_rgba(17,24,28,0.05)] hover:border-primary/50 hover:shadow-[0_4px_12px_rgba(79,70,229,0.08)]'
-                  }`}
+                  value={group}
+                  layout="position"
+                  dragMomentum={false}
+                  dragTransition={DROP_TRANSITION}
+                  transition={{ layout: reorderTransition }}
+                  onDragEnd={onReorderEnd}
+                  whileDrag={{
+                    zIndex: 30,
+                    boxShadow: '0 10px 24px rgba(17, 24, 28, 0.14)',
+                  }}
+                  className="list-none rounded-large"
                 >
-                  {isEditing ? (
-                    <div className="flex flex-col gap-1.5 p-2">
-                      <div className="flex items-center gap-1.5">
-                        <Input
-                          autoFocus
-                          size="sm"
-                          radius="md"
-                          variant="bordered"
-                          value={draft}
-                          onValueChange={(value) => {
-                            setDraft(value);
-                            if (renameError) setRenameError('');
-                          }}
-                          isDisabled={renaming}
-                          maxLength={20}
-                          aria-label="分组名称"
-                          classNames={{
-                            base: 'flex-1',
-                            inputWrapper: 'h-8 min-h-8 border-default-300 data-[focus=true]:border-primary',
-                            input: 'text-[13px]',
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') void commitRename();
-                            if (event.key === 'Escape') cancelRename();
-                          }}
-                        />
-                        <Button
-                          isIconOnly
-                          size="sm"
-                          radius="md"
-                          color="primary"
-                          variant="flat"
-                          isLoading={renaming}
-                          aria-label="保存名称"
-                          onPress={() => void commitRename()}
-                          className="h-8 w-8 min-w-8"
-                        >
-                          <Check size={14} strokeWidth={2.2} />
-                        </Button>
-                        <Button
-                          isIconOnly
-                          size="sm"
-                          radius="md"
-                          variant="light"
-                          isDisabled={renaming}
-                          aria-label="取消改名"
-                          onPress={cancelRename}
-                          className="h-8 w-8 min-w-8 text-default-500"
-                        >
-                          <X size={14} />
-                        </Button>
-                      </div>
-                      {renameError && (
-                        <span className="px-1 text-[11px] font-medium text-danger">
-                          {renameError}
-                        </span>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2.5 px-3 py-2.5">
-                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                        <Folder size={16} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13.5px] font-semibold leading-5 text-foreground">
+                  <Card
+                    shadow="none"
+                    radius="lg"
+                    onContextMenu={(e) => handleContextMenu(e, group)}
+                    className="w-full border border-default-200 bg-content1 shadow-[0_1px_2px_rgba(17,24,28,0.05)] hover:border-primary hover:shadow-[0_6px_16px_rgba(79,70,229,0.10)] transition-[border-color,box-shadow,background-color] duration-150 cursor-grab active:cursor-grabbing"
+                  >
+                    <CardBody className="flex flex-row items-center justify-between gap-3 px-3.5 py-3">
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                          <Folder size={16} />
+                        </div>
+                        <span className="truncate text-sm font-semibold leading-5 text-foreground">
                           {group.name}
-                        </div>
-                        <div className="text-[11px] leading-4 tabular-nums text-default-500">
-                          {count > 0 ? `${count} 个账号` : '暂无账号'}
-                        </div>
+                        </span>
                       </div>
-                      <div className="flex flex-shrink-0 items-center gap-0.5">
-                        <Tooltip content="重命名" delay={300} closeDelay={0} disableAnimation>
-                          <Button
-                            isIconOnly
-                            size="sm"
-                            radius="md"
-                            variant="light"
-                            aria-label={`重命名 ${group.name}`}
-                            onPress={() => startRename(group)}
-                            className="h-7 w-7 min-w-7 text-default-500 data-[hover=true]:bg-primary/10 data-[hover=true]:text-primary"
-                          >
-                            <Pencil size={13} />
-                          </Button>
-                        </Tooltip>
-                        <Tooltip content="删除分组" delay={300} closeDelay={0} disableAnimation>
-                          <Button
-                            isIconOnly
-                            size="sm"
-                            radius="md"
-                            variant="light"
-                            color="danger"
-                            aria-label={`删除 ${group.name}`}
-                            onPress={() => setDeleteTarget(group)}
-                            className="h-7 w-7 min-w-7 text-default-400 data-[hover=true]:text-danger"
-                          >
-                            <Trash2 size={13} />
-                          </Button>
-                        </Tooltip>
-                      </div>
-                    </div>
-                  )}
-                </li>
+
+                      <span
+                        className={`flex-shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium tabular-nums ${
+                          count > 0
+                            ? 'bg-primary/10 text-primary'
+                            : 'bg-default-100 text-default-500'
+                        }`}
+                      >
+                        {count > 0 ? `${count} 个账号` : '暂无账号'}
+                      </span>
+                    </CardBody>
+                  </Card>
+                </Reorder.Item>
               );
             })}
-          </ul>
+          </Reorder.Group>
         )}
       </ScrollShadow>
 
+      {/* Right-Click Context Menu */}
+      <Dropdown
+        key={contextMenu ? `${contextMenu.group.id}-${contextMenu.x}-${contextMenu.y}` : 'closed'}
+        isOpen={Boolean(contextMenu)}
+        onOpenChange={(open) => {
+          if (!open) setContextMenu(null);
+        }}
+        placement="bottom-start"
+        disableAnimation
+      >
+        <DropdownTrigger>
+          <div
+            style={{
+              position: 'fixed',
+              left: contextMenu?.x ?? 0,
+              top: contextMenu?.y ?? 0,
+              width: 1,
+              height: 1,
+              pointerEvents: 'none',
+            }}
+          />
+        </DropdownTrigger>
+        <DropdownMenu
+          aria-label="分组操作"
+          onAction={(key) => {
+            const target = contextMenu?.group;
+            setContextMenu(null);
+            if (!target) return;
+            if (key === 'rename') {
+              openRename(target);
+            } else if (key === 'delete') {
+              setDeleteTarget(target);
+            }
+          }}
+        >
+          <DropdownItem key="rename" startContent={<Pencil size={14} />}>
+            重命名
+          </DropdownItem>
+          <DropdownItem
+            key="delete"
+            color="danger"
+            className="text-danger"
+            startContent={<Trash2 size={14} />}
+          >
+            删除
+          </DropdownItem>
+        </DropdownMenu>
+      </Dropdown>
+
+      {/* Create Group Modal */}
+      <Modal
+        isOpen={isCreateOpen}
+        onClose={() => {
+          if (!creating) onCreateClose();
+        }}
+        size="xs"
+        placement="center"
+        backdrop="opaque"
+        classNames={{ base: 'bg-content1 border border-default-200' }}
+      >
+        <ModalContent>
+          {(modalClose) => (
+            <>
+              <ModalHeader className="flex items-center gap-2 pb-1 text-sm font-semibold text-foreground">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <FolderPlus size={14} />
+                </span>
+                <span>新建分组</span>
+              </ModalHeader>
+              <ModalBody className="gap-2.5 py-2">
+                <Input
+                  autoFocus
+                  size="sm"
+                  radius="md"
+                  variant="bordered"
+                  label="分组名称"
+                  value={newName}
+                  onValueChange={(value) => {
+                    setNewName(value);
+                    if (createError) setCreateError('');
+                  }}
+                  isDisabled={creating}
+                  maxLength={20}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void handleCreate();
+                  }}
+                />
+                {createError && (
+                  <Alert
+                    color="danger"
+                    variant="flat"
+                    title={createError}
+                    classNames={{
+                      base: 'py-1.5 px-2.5 items-center',
+                      title: 'text-xs font-medium',
+                    }}
+                  />
+                )}
+              </ModalBody>
+              <ModalFooter className="pb-3 pt-2">
+                <Button size="sm" variant="light" isDisabled={creating} onPress={modalClose}>
+                  取消
+                </Button>
+                <Button
+                  size="sm"
+                  color="primary"
+                  isLoading={creating}
+                  isDisabled={!newName.trim()}
+                  onPress={() => void handleCreate()}
+                >
+                  创建
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      {/* Rename Group Modal */}
+      <Modal
+        isOpen={Boolean(renameTarget)}
+        onClose={closeRename}
+        size="xs"
+        placement="center"
+        backdrop="opaque"
+        classNames={{ base: 'bg-content1 border border-default-200' }}
+      >
+        <ModalContent>
+          {(modalClose) => (
+            <>
+              <ModalHeader className="flex items-center gap-2 pb-1 text-sm font-semibold text-foreground">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Pencil size={14} />
+                </span>
+                <span>重命名分组</span>
+              </ModalHeader>
+              <ModalBody className="gap-2.5 py-2">
+                <Input
+                  autoFocus
+                  size="sm"
+                  radius="md"
+                  variant="bordered"
+                  label="分组名称"
+                  value={draft}
+                  onValueChange={(value) => {
+                    setDraft(value);
+                    if (renameError) setRenameError('');
+                  }}
+                  isDisabled={renaming}
+                  maxLength={20}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void handleRename();
+                  }}
+                />
+                {renameError && (
+                  <Alert
+                    color="danger"
+                    variant="flat"
+                    title={renameError}
+                    classNames={{
+                      base: 'py-1.5 px-2.5 items-center',
+                      title: 'text-xs font-medium',
+                    }}
+                  />
+                )}
+              </ModalBody>
+              <ModalFooter className="pb-3 pt-2">
+                <Button size="sm" variant="light" isDisabled={renaming} onPress={modalClose}>
+                  取消
+                </Button>
+                <Button
+                  size="sm"
+                  color="primary"
+                  isLoading={renaming}
+                  isDisabled={!draft.trim()}
+                  onPress={() => void handleRename()}
+                >
+                  保存
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      {/* Delete Confirm Modal */}
       <Modal
         isOpen={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}

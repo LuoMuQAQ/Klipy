@@ -30,7 +30,7 @@
   - **右键点击卡片**弹出 HeroUI `<Dropdown>` 上下文菜单，可导出、编辑或删除账号。菜单锚定点击坐标，不做缩放，避免卡片尚未归位时菜单文字移动。
   - **账号头像**：内置 85 个常见品牌图标（`public/brands/si/<slug>.svg`，24×24 path + 官方品牌色），匹配时先看服务名称（issuer）、再看账号字段，因此「未命名 / Muse」这类迁移账号也能拿到图标；未识别服务或图片加载失败时使用名称缩写。素材出处见 [`public/brands/SOURCES.md`](public/brands/SOURCES.md)。
 - **分组管理**（账号必须归属分组，不提供「未分组」）：
-  - 点击标题栏文件夹按钮进入独立「分组管理」页：标题栏左侧变为返回按钮，页面可**新建、重命名、删除**分组，并显示每个分组下的账号数。
+  - 点击标题栏文件夹按钮进入独立「分组管理」页：标题栏左侧变为返回按钮，右上角显示 `+` 按钮用于弹窗新建分组；卡片支持左键按住上下拖拽排序（`groupreorder` 持久化，主页面分组筛选栏实时同步顺序），右键点击分组卡片弹出上下文菜单可重命名（弹窗）或删除，并显示每个分组下的账号数。
   - 分组名称校验：非空、最长 20 字符、不区分大小写去重；不限制分组数量。错误提示由 `formatError` 剥离 Electron IPC 包装后直接展示后端中文文案。
   - 删除分组前弹确认框，**组内账号会随分组一并删除**（确认框会标明数量与不可撤销）；重命名在同一位置内联编辑（Enter 保存、Esc 取消）。
   - 数据保存在 `%APPDATA%\WindowsAuthenticatorDemo\groups.json`；账号通过 `accounts.json` 中的 `groupId` 字段引用分组，后端在启动时会把「没有分组 / 分组已不存在」的历史账号收进「默认分组」，避免账号从界面上消失。
@@ -101,7 +101,7 @@
 - **窗口控制**：`window:minimize`、`window:maximize`、`window:close`、`window:isMaximized`（以及主进程向渲染层推送的 `window:maximized-changed`）。
 - **剪贴板**：`authenticator:copy`（主进程调用 `clipboard.writeText`）。
 - **业务代理**：`authenticator:list`、`authenticator:add`、`authenticator:delete`、`authenticator:update`、`authenticator:parseUri`、`authenticator:parseMigration`、`authenticator:validateSecret`、`authenticator:reorder`、`authenticator:export`。
-- **分组管理**：`authenticator:groupList`、`authenticator:groupAdd`、`authenticator:groupRename`、`authenticator:groupDelete`（对应 preload 的 `listGroups` / `addGroup(name)` / `renameGroup(id, name)` / `deleteGroup(id)`；`deleteGroup` 返回 `{ deleted, removedAccounts }`）。
+- **分组管理**：`authenticator:groupList`、`authenticator:groupAdd`、`authenticator:groupRename`、`authenticator:groupDelete`、`authenticator:groupReorder`（对应 preload 的 `listGroups` / `addGroup(name)` / `renameGroup(id, name)` / `deleteGroup(id)` / `reorderGroups(ids)`；`deleteGroup` 返回 `{ deleted, removedAccounts }`）。
 
 ### 3.3 C# 后端 Stdio JSON-RPC 协议
 - **请求格式**：`{"id":"1","action":"<action>","params":{...}}\n`
@@ -115,10 +115,11 @@
   - `parseuri`：解析 `otpauth://totp/...` 字符串返回结构化字段。
   - `parsemigration`：解析 `otpauth-migration://offline?data=...`（Google Authenticator `MigrationPayload` protobuf），返回 `{ accounts: MigrationAccountDto[], skipped, batchSize, batchIndex }`；仅 TOTP、非 MD5 且密钥可解码的条目进入 `accounts`。
   - `validatesecret`：仅验证 Base32 密钥合法性。
-  - `grouplist`：返回 `GroupDto[]`（按创建时间排序）。
-  - `groupadd`：接收 `{ name }`，校验非空 / 长度 / 重名后返回新分组。
+  - `grouplist`：返回 `GroupDto[]`（按保存顺序返回）。
+  - `groupadd`：接收 `{ name }`，校验非空 / 长度 / 重名后返回新分组（无数量上限）。
   - `grouprename`：接收 `{ id, name }`，返回更新后的分组。
   - `groupdelete`：接收 `{ id }`，删除分组并**一并删除组内账号**，返回 `{ deleted, removedAccounts }`。
+  - `groupreorder`：传入 `{ "ids": string[] }`，按顺序重排分组并保存（未包含的分组追加到末尾）。
   - `reorder`：传入 `{ "ids": string[] }`，按顺序重排 `_accounts` 并保存（未包含的账号追加到末尾）。
   - `export`：传入 `{ "id": string }`，返回 `ExportAccountDto`（包含 `secret` 与标准生成的 `uri`）。
 
@@ -221,7 +222,7 @@
 
 1. **密钥存储安全性**：目前为 Demo 阶段，账号 `secret` 以明文 JSON 存储在 `%APPDATA%\WindowsAuthenticatorDemo\accounts.json`（分组只存名称，不含密钥）。后续上线生产前建议在 C# 层使用 Windows DPAPI（`System.Security.Cryptography.ProtectedData`）对 `Secret` 字段或整文件进行本机用户态加密。
 2. **迁移导入范围**：`parsemigration` 只导入 TOTP 且算法非 MD5 的条目，HOTP 账号会被计入 `skipped` 并跳过；Google Authenticator 的分批导出（`batchSize > 1`）需要用户分别导入每个链接，当前不做跨批次合并。
-3. **分组容量与排序**：分组数量不设上限，名称最长 20 字符；分组本身按创建时间排序，不支持拖拽调整分组顺序。因为账号必须归属分组，**删除分组会连带删除组内账号**（确认框会显示数量），目前没有「移到其他分组」的批量操作；如需保留账号，请先在「编辑」里逐个改到其它分组。
+3. **分组容量与排序**：分组数量不设上限，名称最长 20 字符；支持在分组管理页左键按住上下拖拽调整顺序并持久化。因为账号必须归属分组，**删除分组会连带删除组内账号**（确认框会显示数量），目前没有「移到其他分组」的批量操作；如需保留账号，请先在「编辑」里逐个改到其它分组。
 4. **自定义刷新周期兼容**：后端支持任意 `period`（如 60 秒），但当前前端 `<TotpProgress>` 动画与刷新定时器固定按 `30000ms` 周期计算。若后续在界面重新开放非 30 秒周期录入，需改为基于各账号 `period` 独立计算或分类展示倒计时。
 5. **独立打包与分发**：当前 `npm run build:backend` 采用框架依赖发布（依赖目标机器存在 .NET 10 运行时）。若需打包为独立安装包给无 .NET 环境的用户使用，可将 `build:backend` 调整为 `dotnet publish backend/AuthenticatorBackend.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o bin/backend`，并引入 `electron-builder` 配置将 `dist/` 与 `bin/backend/` 一起打入安装包的 `resources`。
 6. **测试覆盖**：当前以构建检查、脚本化协议验证与无头渲染校验为主，尚未建立自动化单元测试套件。建议后续为 `TotpEngine.cs` 补充 RFC 6238 / RFC 4226 标准测试向量单元测试，并为 `MigrationParser` 增加固定样本测试。

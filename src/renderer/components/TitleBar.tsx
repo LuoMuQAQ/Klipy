@@ -18,6 +18,7 @@ interface TitleBarProps {
   /** 只有存在分组时才允许添加账号（账号必须归属分组）。 */
   canAdd: boolean;
   onAddOpen: () => void;
+  onAddGroupOpen: () => void;
   onGroupsOpen: () => void;
   onBack: () => void;
 }
@@ -26,6 +27,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   view,
   canAdd,
   onAddOpen,
+  onAddGroupOpen,
   onGroupsOpen,
   onBack,
 }) => {
@@ -89,7 +91,24 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       </NavbarBrand>
 
       <NavbarContent justify="end" className="app-nodrag gap-0 h-full">
-        {!isGroupsView && (
+        {isGroupsView ? (
+          <NavbarItem className="flex items-center mr-1">
+            <Tooltip content="新建分组" delay={300} closeDelay={0} disableAnimation>
+              <Button
+                id="add-group-btn"
+                isIconOnly
+                size="sm"
+                color="primary"
+                variant="flat"
+                aria-label="新建分组"
+                onPress={onAddGroupOpen}
+                className="w-7 h-7 min-w-7"
+              >
+                <Plus size={15} strokeWidth={2.2} />
+              </Button>
+            </Tooltip>
+          </NavbarItem>
+        ) : (
           <>
             {canAdd && (
               <NavbarItem className="flex items-center mr-1">

@@ -35,6 +35,7 @@ function registerIpc() {
     groupAdd: 'groupadd',
     groupRename: 'grouprename',
     groupDelete: 'groupdelete',
+    groupReorder: 'groupreorder',
     reorder: 'reorder',
     export: 'export',
   };

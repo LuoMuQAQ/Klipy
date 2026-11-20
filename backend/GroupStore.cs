@@ -64,8 +64,6 @@ namespace AuthenticatorBackend
             lock (_lock)
             {
                 return _groups
-                    .OrderBy(g => g.CreatedAt)
-                    .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
                     .Select(ToDto)
                     .ToList();
             }
@@ -145,6 +143,38 @@ namespace AuthenticatorBackend
             {
                 int removed = _groups.RemoveAll(g => g.Id == id);
                 if (removed == 0) return false;
+                SaveUnsafe();
+                return true;
+            }
+        }
+
+        public bool Reorder(List<string> orderedIds)
+        {
+            lock (_lock)
+            {
+                if (orderedIds == null || orderedIds.Count == 0) return false;
+
+                var byId = _groups.ToDictionary(g => g.Id);
+                var reordered = new List<GroupRecord>();
+
+                foreach (string id in orderedIds)
+                {
+                    if (byId.TryGetValue(id, out var group))
+                    {
+                        reordered.Add(group);
+                        byId.Remove(id);
+                    }
+                }
+
+                foreach (var remaining in _groups)
+                {
+                    if (byId.ContainsKey(remaining.Id))
+                    {
+                        reordered.Add(remaining);
+                    }
+                }
+
+                _groups = reordered;
                 SaveUnsafe();
                 return true;
             }

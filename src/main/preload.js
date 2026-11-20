@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('authenticatorAPI', {
   addGroup: (name) => ipcRenderer.invoke('authenticator:groupAdd', { name }),
   renameGroup: (id, name) => ipcRenderer.invoke('authenticator:groupRename', { id, name }),
   deleteGroup: (id) => ipcRenderer.invoke('authenticator:groupDelete', { id }),
+  reorderGroups: (ids) => ipcRenderer.invoke('authenticator:groupReorder', { ids }),
   reorderAccounts: (ids) => ipcRenderer.invoke('authenticator:reorder', { ids }),
   exportAccount: (id) => ipcRenderer.invoke('authenticator:export', { id }),
   copyToClipboard: (text) => ipcRenderer.invoke('authenticator:copy', text),
