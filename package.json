@@ -1,0 +1,41 @@
+{
+  "name": "vouch",
+  "version": "1.0.0",
+  "description": "Vouch - Windows 轻量级 2FA / TOTP 身份验证器 (HeroUI + Electron + C#)",
+  "scripts": {
+    "dev:vite": "vite",
+    "dev": "concurrently -k \"npm run dev:vite\" \"npm run dev:electron\"",
+    "build:backend": "dotnet publish backend/AuthenticatorBackend.csproj -c Release -o bin/backend",
+    "build:vite": "vite build",
+    "start": "electron .",
+    "dev:electron": "wait-on http-get://127.0.0.1:5173 && cross-env AUTHENTICATOR_DEV_URL=http://127.0.0.1:5173/ electron ."
+  },
+  "dependencies": {
+    "@heroui/react": "^2.8.10",
+    "clsx": "^2.1.1",
+    "framer-motion": "^11.18.2",
+    "jsqr": "^1.4.0",
+    "lucide-react": "^0.475.0",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "33.4.11",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "wait-on": "^8.0.2"
+  },
+  "main": "src/main/main.js"
+}

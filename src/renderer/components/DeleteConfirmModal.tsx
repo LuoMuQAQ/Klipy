@@ -1,0 +1,62 @@
+import React from 'react';
+import {
+  Modal,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  Button,
+} from '@heroui/react';
+import { Trash2 } from 'lucide-react';
+import { Account } from '../types';
+
+interface DeleteConfirmModalProps {
+  account: Account | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}
+
+export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
+  account,
+  isOpen,
+  onClose,
+  onConfirm,
+}) => {
+  if (!account) return null;
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="xs"
+      placement="center"
+      backdrop="opaque"
+      classNames={{
+        base: 'bg-content1 border border-default-200',
+      }}
+    >
+      <ModalContent>
+        {(modalClose) => (
+          <>
+            <ModalHeader className="flex items-center gap-1.5 text-danger text-sm font-semibold pb-1">
+              <Trash2 size={15} />
+              <span>确认删除</span>
+            </ModalHeader>
+            <ModalBody className="py-2 text-sm text-foreground">
+              确定要删除 <span className="font-semibold text-primary">{account.issuer}</span> ({account.account}) 吗？
+            </ModalBody>
+            <ModalFooter className="pt-2 pb-3">
+              <Button size="sm" variant="light" onPress={modalClose}>
+                取消
+              </Button>
+              <Button size="sm" color="danger" onPress={onConfirm}>
+                删除
+              </Button>
+            </ModalFooter>
+          </>
+        )}
+      </ModalContent>
+    </Modal>
+  );
+};

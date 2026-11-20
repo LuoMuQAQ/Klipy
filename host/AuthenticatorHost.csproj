@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RootNamespace>AuthenticatorHost</RootNamespace>
+    <AssemblyName>AuthenticatorHost</AssemblyName>
+    <ApplicationIcon />
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+    <ProjectReference Include="..\backend\AuthenticatorBackend.csproj" />
+  </ItemGroup>
+
+  <Target Name="DropWebView2WpfReference" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="$([System.String]::Copy('%(Identity)').Contains('Microsoft.Web.WebView2.Wpf.dll'))" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CopyFrontendDist" AfterTargets="Build">
+    <ItemGroup>
+      <DistFiles Include="$(MSBuildProjectDirectory)\..\dist\**\*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(DistFiles)"
+      DestinationFiles="@(DistFiles->'$(OutputPath)dist\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true"
+      Condition="'@(DistFiles)' != ''" />
+  </Target>
+
+</Project>

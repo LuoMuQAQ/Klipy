@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --font-sans: "MiSans VF", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #f5f7fa;
+  color: #11181c;
+  user-select: none;
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: auto;
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
+  overflow: hidden;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Frameless window dragging (Electron) */
+.app-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.app-nodrag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.font-mono,
+.otp-code {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.otp-code {
+  font-family: var(--font-sans);
+  font-weight: 620;
+  font-size: 22px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+}
+
+/* Custom smooth scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.35);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.55);
+}
