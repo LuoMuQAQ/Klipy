@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
+using System.Security.Cryptography;
 
 namespace AuthenticatorBackend
 {
@@ -23,34 +23,12 @@ namespace AuthenticatorBackend
             Load();
         }
 
-        private void Load()
-        {
-            lock (_lock)
-            {
-                if (!File.Exists(_filePath)) return;
+        private void Load() => _accounts = VaultFile.LoadAccounts(_filePath);
 
-                try
-                {
-                    string json = File.ReadAllText(_filePath);
-                    var list = JsonSerializer.Deserialize<List<AccountRecord>>(json);
-                    if (list != null)
-                    {
-                        _accounts = list;
-                    }
-                }
-                catch
-                {
-                    // 文件损坏时以空账号库启动，不立刻覆盖原文件，避免二次破坏。
-                    _accounts = new List<AccountRecord>();
-                }
-            }
-        }
-
-        private void SaveUnsafe()
+        private void Commit(List<AccountRecord> accounts)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            string json = JsonSerializer.Serialize(_accounts, options);
-            File.WriteAllText(_filePath, json);
+            VaultFile.SaveAccounts(_filePath, accounts);
+            _accounts = accounts;
         }
 
         public List<AccountDto> GetAccountsWithCodes()
@@ -105,7 +83,9 @@ namespace AuthenticatorBackend
                 }
 
                 // Validate base32
-                TotpEngine.DecodeBase32(secret);
+                var key = TotpEngine.DecodeBase32(secret);
+                if (key.Length == 0) throw new ArgumentException("密钥无效。");
+                CryptographicOperations.ZeroMemory(key);
 
                 var newAcc = new AccountRecord
                 {
@@ -120,8 +100,9 @@ namespace AuthenticatorBackend
                     CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
                 };
 
-                _accounts.Insert(0, newAcc);
-                SaveUnsafe();
+                var updated = new List<AccountRecord>(_accounts);
+                updated.Insert(0, newAcc);
+                Commit(updated);
 
                 long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                 string code = TotpEngine.GenerateCode(newAcc.Secret, now, newAcc.Digits, newAcc.Period, newAcc.Algorithm);
@@ -146,10 +127,11 @@ namespace AuthenticatorBackend
         {
             lock (_lock)
             {
-                int removed = _accounts.RemoveAll(a => a.Id == id);
+                var updated = _accounts.Where(a => a.Id != id).ToList();
+                int removed = _accounts.Count - updated.Count;
                 if (removed > 0)
                 {
-                    SaveUnsafe();
+                    Commit(updated);
                     return true;
                 }
                 return false;
@@ -169,10 +151,13 @@ namespace AuthenticatorBackend
                 var item = _accounts.FirstOrDefault(a => a.Id == id);
                 if (item == null) return null;
 
-                if (!string.IsNullOrWhiteSpace(issuer)) item.Issuer = issuer.Trim();
-                if (!string.IsNullOrWhiteSpace(account)) item.Account = account.Trim();
-                item.GroupId = cleanGroupId;
-                SaveUnsafe();
+                item = item with
+                {
+                    Issuer = string.IsNullOrWhiteSpace(issuer) ? item.Issuer : issuer.Trim(),
+                    Account = string.IsNullOrWhiteSpace(account) ? item.Account : account.Trim(),
+                    GroupId = cleanGroupId
+                };
+                Commit(_accounts.Select(a => a.Id == id ? item : a).ToList());
 
                 long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                 string code = TotpEngine.GenerateCode(item.Secret, now, item.Digits, item.Period, item.Algorithm);
@@ -199,9 +184,10 @@ namespace AuthenticatorBackend
             lock (_lock)
             {
                 string target = (groupId ?? "").Trim();
-                int removed = _accounts.RemoveAll(a =>
-                    string.Equals((a.GroupId ?? "").Trim(), target, StringComparison.Ordinal));
-                if (removed > 0) SaveUnsafe();
+                var updated = _accounts.Where(a =>
+                    !string.Equals((a.GroupId ?? "").Trim(), target, StringComparison.Ordinal)).ToList();
+                int removed = _accounts.Count - updated.Count;
+                if (removed > 0) Commit(updated);
                 return removed;
             }
         }
@@ -229,15 +215,13 @@ namespace AuthenticatorBackend
             {
                 var from = new HashSet<string>(fromGroupIds, StringComparer.Ordinal);
                 int moved = 0;
-                foreach (var acc in _accounts)
+                var updated = _accounts.Select(acc =>
                 {
-                    string gid = (acc.GroupId ?? "").Trim();
-                    if (!from.Contains(gid)) continue;
-                    acc.GroupId = toGroupId;
+                    if (!from.Contains((acc.GroupId ?? "").Trim())) return acc;
                     moved++;
-                }
-
-                if (moved > 0) SaveUnsafe();
+                    return acc with { GroupId = toGroupId };
+                }).ToList();
+                if (moved > 0) Commit(updated);
                 return moved;
             }
         }
@@ -269,8 +253,7 @@ namespace AuthenticatorBackend
                     }
                 }
 
-                _accounts = reordered;
-                SaveUnsafe();
+                Commit(reordered);
                 return true;
             }
         }

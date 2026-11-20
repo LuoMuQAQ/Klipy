@@ -1,10 +1,10 @@
 # 项目交接文档 (Handoff Document)
 
 **项目名称**：Klipy（Windows 轻量级 2FA / TOTP 身份验证器）  
-**当前版本**：`1.0.0`  
-**技术栈**：Electron 33.4.11 + React 18 + TypeScript + HeroUI (`@heroui/react` 2.8.10) + Tailwind CSS 3 + Framer Motion 11 + C# (.NET 10)  
+**当前版本**：`1.0.1`
+**技术栈**：Electron 45.4.1 + React 18 + TypeScript + HeroUI (`@heroui/react` 2.8.10) + Tailwind CSS 3 + Framer Motion 11 + C# (.NET 10)
 **文档日期**：2026-11-20  
-**最近更新**：2026-11-20 20:16（定名 Klipy、移除分组数量上限、平面扁平式 Logo 重制、分组管理页 UI 优化并同步 GitHub 公开仓库）  
+**最近更新**：2026-11-20（安全加固及 Windows x64 安装包）
 **当前状态**：可运行；`dist/` 与 `bin/backend/` 已按最新代码重新构建并通过验证。  
 
 > ⚠️ **不要清空 `%APPDATA%\WindowsAuthenticatorDemo`**：其中已是用户的真实数据（9 个账号，均在 `Google` 分组）。需要测试时请设置 `AUTHENTICATOR_DATA_DIR` 指向临时目录。
@@ -25,7 +25,7 @@
   - 顶部 `<TotpProgress>` 使用 Web Animations API 线性缩放，与系统时间对齐，不再每 100 ms 重渲染主列表。剩余 10 秒变黄、5 秒变红，30 秒周期切换时自动向后端拉取新验证码。
   - 账号数据持久化在 `%APPDATA%\WindowsAuthenticatorDemo\accounts.json`；首次启动为空账号库，界面引导先创建分组（不再预置演示账号）。
 - **卡片交互与排序**：
-  - 取消独立复制与删除按钮，**左键单击卡片**通过主进程 `clipboard.writeText` 自动复制验证码，并弹出 HeroUI `<Toast>` 提示。
+  - 取消独立复制与删除按钮，**左键单击卡片**通过主进程代理到 C# 后端的 Windows 剪贴板接口复制验证码，并弹出 HeroUI `<Toast>` 提示。
   - **左键按住卡片上下拖拽**可实时调整排序（基于 `framer-motion` `<Reorder.Group>` / `<Reorder.Item>`），松手后平滑归位，并调用后端 `reorder` 持久化顺序，不误触发复制。
   - **右键点击卡片**弹出 HeroUI `<Dropdown>` 上下文菜单，可导出、编辑或删除账号。菜单锚定点击坐标，不做缩放，避免卡片尚未归位时菜单文字移动。
   - **账号头像**：内置 85 个常见品牌图标（`public/brands/si/<slug>.svg`，24×24 path + 官方品牌色），匹配时先看服务名称（issuer）、再看账号字段，因此「未命名 / Muse」这类迁移账号也能拿到图标；未识别服务或图片加载失败时使用名称缩写。素材出处见 [`public/brands/SOURCES.md`](public/brands/SOURCES.md)。
@@ -54,7 +54,7 @@
 当前运行链路为 Electron；`host/` 仅保留 WebView2 迁移备份，不参与启动或构建。首次运行依次执行 `npm ci`、`npm run build:vite`、`npm run build:backend`，再启动应用。
 | 命令 | 作用 |
 | :--- | :--- |
-| `npm start` 或双击 `启动.bat` | 运行 Electron（加载 `dist/index.html` 与 `bin/backend/AuthenticatorBackend.exe`） |
+| `npm start` 或双击 `启动.bat` | 运行 Electron（通过 `klipy://app/index.html` 加载 `dist/`，运行 `bin/backend/AuthenticatorBackend.exe`） |
 | `npm run dev` | 并发启动 Vite 开发服务器（`127.0.0.1:5173`）与 Electron |
 | `npm run build:vite` | 编译前端产物至 `dist/` |
 | `npm run build:backend` | 发布 C# 后端至 `bin/backend/`（Release 配置） |
@@ -63,7 +63,7 @@
 > **注意**：若在新环境执行 `npm install` 时遇到 `install-scripts` 被拦截提示，需手动执行一次 `node node_modules/electron/install.js` 和 `node node_modules/esbuild/install.js` 以拉取二进制文件。
 
 ### 数据目录
-- 默认：`%APPDATA%\WindowsAuthenticatorDemo\`，包含 `accounts.json`（账号，含 `groupId`）与 `groups.json`（分组）。
+- 默认：`%APPDATA%\WindowsAuthenticatorDemo\`，包含 `accounts.json`（DPAPI 加密账号库）与 `groups.json`（分组）。
 - 设置环境变量 `AUTHENTICATOR_DATA_DIR` 可改用任意目录（便携运行 / 自动化测试），解析逻辑在 [`backend/AppPaths.cs`](backend/AppPaths.cs)。
 - 做协议测试或界面测试时务必指向临时目录；用户真实数据不要动。
 
@@ -95,11 +95,11 @@
 ```
 
 ### 3.1 Electron 进程选择后端策略
-`src/main/backend-client.js` 会优先检查 `bin/backend/AuthenticatorBackend.exe` 是否存在；存在则直接派生该 exe，否则回退为 `dotnet run --project backend/AuthenticatorBackend.csproj -c Release --no-launch-profile`。通信采用 stdio 管道，不占用任何本地 TCP 端口，可避免 Windows 防火墙弹窗，并在 `will-quit` 时关闭子进程 stdin，使后端退出。
+`src/main/backend-client.js` 会优先检查 `bin/backend/AuthenticatorBackend.exe` 是否存在；存在则直接派生该 exe；仅开发模式在该文件不存在时回退为 `dotnet run --project backend/AuthenticatorBackend.csproj -c Release --no-launch-profile`。通信采用 stdio 管道，不占用任何本地 TCP 端口，可避免 Windows 防火墙弹窗，并在 `will-quit` 时关闭子进程 stdin，使后端退出。
 
 ### 3.2 IPC 通道清单（Main ↔ Preload）
 - **窗口控制**：`window:minimize`、`window:maximize`、`window:close`、`window:isMaximized`（以及主进程向渲染层推送的 `window:maximized-changed`）。
-- **剪贴板**：`authenticator:copy`（主进程调用 `clipboard.writeText`）。
+- **剪贴板**：`authenticator:copy`（主进程验证后由后端以单次事务写入文本与 Windows 隐私标记）。
 - **业务代理**：`authenticator:list`、`authenticator:add`、`authenticator:delete`、`authenticator:update`、`authenticator:parseUri`、`authenticator:parseMigration`、`authenticator:validateSecret`、`authenticator:reorder`、`authenticator:export`。
 - **分组管理**：`authenticator:groupList`、`authenticator:groupAdd`、`authenticator:groupRename`、`authenticator:groupDelete`、`authenticator:groupReorder`（对应 preload 的 `listGroups` / `addGroup(name)` / `renameGroup(id, name)` / `deleteGroup(id)` / `reorderGroups(ids)`；`deleteGroup` 返回 `{ deleted, removedAccounts }`）。
 
@@ -192,9 +192,8 @@
 3. **Portal 浮层容器不要强行覆盖 `inset: 0`**
    - 切勿在 `index.css` 中添加 `body > *:not(#root) { inset: 0 !important }`。HeroUI 的右键 `<Dropdown>` 和 `<ToastProvider>` 依赖 React Aria 计算 `left`/`top` 坐标，全局强制 `inset: 0` 会使右键菜单在顶部全宽拉伸。
 
-4. **Electron 33 默认沙箱下的剪贴板写入**
-   - Electron 33 默认 `sandbox: true`，导致 `preload.js` 中 `require('electron').clipboard` 为 `undefined`。
-   - 剪贴板写入已统一通过主进程 `ipcMain.handle('authenticator:copy', ...)` 完成，不要再尝试在 `preload.js` 直接引用 `clipboard`。
+4. **沙箱下的剪贴板写入**
+   - 剪贴板通过主进程 `ipcMain.handle('authenticator:copy', ...)` 代理给 C# 后端，不在 preload 或渲染层调用普通剪贴板写入。`PrivateClipboard` 把可粘贴的 Unicode 文本和排除历史记录/云同步的格式一起写入。
 
 5. **卡片拖拽排序与点击复制防冲突**
    - `Reorder.Item` 的外层必须保持与卡片一致的 `rounded-large` 圆角，否则 `whileDrag` 的阴影会露出方角。保持 `layout="position"`、`dragMomentum={false}` 及 `DROP_TRANSITION` 的临界阻尼，避免松手拖尾和归位跳动。
@@ -220,11 +219,11 @@
 
 ## 6. 已知局限与后续演进建议
 
-1. **密钥存储安全性**：目前为 Demo 阶段，账号 `secret` 以明文 JSON 存储在 `%APPDATA%\WindowsAuthenticatorDemo\accounts.json`（分组只存名称，不含密钥）。后续上线生产前建议在 C# 层使用 Windows DPAPI（`System.Security.Cryptography.ProtectedData`）对 `Secret` 字段或整文件进行本机用户态加密。
+1. **密钥存储边界**：`accounts.json` 现在是版本化的 Windows DPAPI 当前用户密文，不是可直接读取的 JSON。启动时校验旧库并自动迁移；写入先校验加密临时文件再原子替换，无法读取/解密时停止启动，保留原文件。不要用旧版打开升级后的数据目录。加密不防同一 Windows 用户权限下的恶意程序；用户主动导出的二维码和链接仍包含可用的密钥。
 2. **迁移导入范围**：`parsemigration` 只导入 TOTP 且算法非 MD5 的条目，HOTP 账号会被计入 `skipped` 并跳过；Google Authenticator 的分批导出（`batchSize > 1`）需要用户分别导入每个链接，当前不做跨批次合并。
 3. **分组容量与排序**：分组数量不设上限，名称最长 20 字符；支持在分组管理页左键按住上下拖拽调整顺序并持久化。因为账号必须归属分组，**删除分组会连带删除组内账号**（确认框会显示数量），目前没有「移到其他分组」的批量操作；如需保留账号，请先在「编辑」里逐个改到其它分组。
 4. **自定义刷新周期兼容**：后端支持任意 `period`（如 60 秒），但当前前端 `<TotpProgress>` 动画与刷新定时器固定按 `30000ms` 周期计算。若后续在界面重新开放非 30 秒周期录入，需改为基于各账号 `period` 独立计算或分类展示倒计时。
-5. **独立打包与分发**：当前 `npm run build:backend` 采用框架依赖发布（依赖目标机器存在 .NET 10 运行时）。若需打包为独立安装包给无 .NET 环境的用户使用，可将 `build:backend` 调整为 `dotnet publish backend/AuthenticatorBackend.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o bin/backend`，并引入 `electron-builder` 配置将 `dist/` 与 `bin/backend/` 一起打入安装包的 `resources`。
+5. **独立打包与分发**：`npm run build:setup` 通过 NSIS 生成 Windows x64 安装包，内置 .NET。默认采用当前用户安装；未来版本保持 `appId`、`productName` 与安装方式，直接运行新版 Setup 即可覆盖更新。账号数据不在安装目录中。当前不提供自动更新或 ARM64 原生包。
 6. **测试覆盖**：当前以构建检查、脚本化协议验证与无头渲染校验为主，尚未建立自动化单元测试套件。建议后续为 `TotpEngine.cs` 补充 RFC 6238 / RFC 4226 标准测试向量单元测试，并为 `MigrationParser` 增加固定样本测试。
 7. **图标版本与覆盖**：主体使用 `simple-icons@15`；Microsoft、AWS、LinkedIn、Adobe、IBM、Oracle、Nintendo Switch、Tencent QQ 取自 `simple-icons@12`，Twitter 取自 `simple-icons@11`（这些品牌在较新版本中已被移除）。`muse` 为补充图标，取自 [LobeHub Icons](https://github.com/lobehub/lobe-icons)（MIT）。升级图标集时需确认这些品牌是否仍可用，缺失时需寻找替代来源。
 
@@ -312,3 +311,18 @@
   - `npx tsc --noEmit`、`npm run build:vite` 与 `npm run build:backend` 均以退出码 `0` 通过。
   - 协议测试（临时 `AUTHENTICATOR_DATA_DIR`）：连续创建 55 个分组全部成功，确认无上限限制。
   - 通过无头 Chrome 渲染查验 `logo-preview.png`、主界面标题栏与分组管理页（mock bridge，不触碰 `%APPDATA%\WindowsAuthenticatorDemo`）。
+
+
+## 13. 安全加固（2026-11-20）
+
+- 后端使用 `VaultFile` 实现 DPAPI 存储、原子保存和迁移，用数据目录独占锁防止新版后端并发覆盖。`groups.json` 不含密钥，仍兼容旧 JSON 格式，损坏时也不会视作空库。
+- Electron 正式版用隔离 session 和 `klipy://app` 加载打包资源；限制资源路径和网络、禁用浏览器权限及 DevTools，校验 IPC 参数并限制在途请求。开发模式仅保留 Vite 本地资源和热更新所需权限。
+- 账号列表仍不返回长期密钥；导出弹窗关闭后清空密钥、链接和二维码状态。应用内复制路径使用 Windows 私有剪贴板标记，不修改导出/复制入口。主动保存的 PNG 不受 DPAPI 保护。
+- 构建后运行 `npm run test:security`（迁移、验证码、加密重启、损坏、并发与 IPC）和 `npm run test:desktop`（Electron 窗口与导入导出冒烟）。测试均使用临时账号库；系统剪贴板非空时跳过写入测试。
+
+
+## 14. 安装包与覆盖更新（2026-11-20）
+
+- 打包配置：`electron-builder.json`，Klipy 的安装标识为 `io.github.luomuqaq.klipy`，升级时不要变更；公开产物是 `release/Klipy-Setup-<版本>-x64.exe` 及 SHA-256 校验文件。
+- 打包时只收录 `dist` 前端资源、`src/main` 运行文件和发布后的自包含 C# 后端。后端放在 `resources/backend`，不在 ASAR 内。安装包不包含工作区、开发依赖、用户数据或导出文件。
+- 更新时关闭应用，运行新版 Setup；NSIS 复用首次安装目录并替换程序文件，账号库和分组不随安装更新或卸载被删除。测试环境可运行 `node tests/setup-smoke.cjs release/win-unpacked/Klipy.exe`；提供两个不同版本的 Setup 路径时会执行安装、覆盖更新、卸载的临时测试，拒绝在已有 Klipy 安装的用户环境中做该测试。

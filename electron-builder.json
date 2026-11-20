@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "io.github.luomuqaq.klipy",
+  "productName": "Klipy",
+  "directories": { "output": "release" },
+  "files": ["dist/**/*", "src/main/*.js", "!node_modules/**/*"],
+  "extraResources": [{ "from": "bin/backend-win-x64", "to": "backend" }],
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "icon": "public/app-icon.png",
+    "artifactName": "Klipy-Setup-${version}-${arch}.${ext}"
+  },
+  "nsis": {
+    "oneClick": true,
+    "perMachine": false,
+    "runAfterFinish": false,
+    "deleteAppDataOnUninstall": false,
+    "createDesktopShortcut": false
+  },
+  "publish": null
+}

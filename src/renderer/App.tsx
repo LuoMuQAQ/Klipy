@@ -189,13 +189,14 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleCopyAccount = (account: Account) => {
+  const handleCopyAccount = async (account: Account) => {
     if (isDraggingRef.current) return;
 
-    if (window.authenticatorAPI?.copyToClipboard) {
-      window.authenticatorAPI.copyToClipboard(account.code);
-    } else {
-      navigator.clipboard.writeText(account.code);
+    try {
+      if (!await window.authenticatorAPI?.copyToClipboard(account.code)) throw new Error();
+    } catch {
+      addToast({ title: '复制失败，请重试', color: 'danger', timeout: 1500 });
+      return;
     }
 
     setCopiedId(account.id);

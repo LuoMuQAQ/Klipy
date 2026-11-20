@@ -32,6 +32,12 @@ namespace AuthenticatorBackend
                         response.Data = new { message = "pong", time = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
                         break;
 
+                    case "copyprivate":
+                        response.Success = PrivateClipboard.Write(ReadString(req.Params, "text"));
+                        if (!response.Success) response.Error = "无法写入剪贴板。";
+                        else response.Data = true;
+                        break;
+
                     case "list":
                         response.Success = true;
                         response.Data = store.GetAccountsWithCodes();
@@ -301,7 +307,9 @@ namespace AuthenticatorBackend
             catch (Exception ex)
             {
                 response.Success = false;
-                response.Error = ex.Message;
+                response.Error = ex is ArgumentException or FormatException ||
+                    (ex is InvalidOperationException && ex.Message == "分组名称已存在。")
+                    ? ex.Message : "操作失败，未能完成请求。";
             }
 
             return response;

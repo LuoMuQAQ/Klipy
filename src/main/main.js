@@ -1,16 +1,23 @@
-const { app, BrowserWindow, clipboard, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, protocol, session } = require('electron');
 const { existsSync } = require('node:fs');
 const path = require('node:path');
-const { pathToFileURL } = require('node:url');
+const { scheme, rendererUrl: productionUrl, rendererSession, devUrl, configureRenderer } = require('./renderer-security');
+const { validate, validateClipboard } = require('./ipc-validation');
 const { createBackendClient } = require('./backend-client');
 
 const root = path.resolve(__dirname, '../..');
-const indexPath = path.join(root, 'dist', 'index.html');
-const devUrl = 'http://127.0.0.1:5173/';
+const dist = path.join(root, 'dist');
+const indexPath = path.join(dist, 'index.html');
 const isDev = !app.isPackaged && process.env.AUTHENTICATOR_DEV_URL === devUrl;
-const rendererUrl = isDev ? devUrl : pathToFileURL(indexPath).href;
-const backend = createBackendClient(root);
+const rendererUrl = isDev ? devUrl : productionUrl;
+const backend = createBackendClient(root, {
+  allowSource: isDev,
+  backendDir: app.isPackaged ? path.join(process.resourcesPath, 'backend') : undefined,
+});
+app.setAppUserModelId('io.github.luomuqaq.klipy');
 let mainWindow;
+
+protocol.registerSchemesAsPrivileged([{ scheme, privileges: { standard: true, secure: true } }]);
 
 function handle(channel, callback) {
   ipcMain.handle(channel, (event, ...args) => {
@@ -18,6 +25,7 @@ function handle(channel, callback) {
     if (event.sender !== mainWindow?.webContents || !frame || frame.parent || frame.url !== rendererUrl) {
       throw new Error('不允许此页面访问身份验证器接口。');
     }
+    if (args.length > 1) throw new Error('请求参数无效。');
     return callback(...args);
   });
 }
@@ -40,13 +48,15 @@ function registerIpc() {
     export: 'export',
   };
   for (const [channel, action] of Object.entries(actions)) {
-    handle(`authenticator:${channel}`, (params) => backend.request(action, params));
+    handle(`authenticator:${channel}`, (params) => {
+      validate(channel, params);
+      return backend.request(action, params);
+    });
   }
 
   handle('authenticator:copy', (text) => {
-    if (typeof text !== 'string') throw new TypeError('剪贴板内容必须是文本。');
-    clipboard.writeText(text);
-    return true;
+    validateClipboard(text);
+    return backend.request('copyprivate', { text });
   });
   handle('window:minimize', () => mainWindow.minimize());
   handle('window:close', () => mainWindow.close());
@@ -60,6 +70,10 @@ async function createWindow() {
     throw new Error('未找到前端构建产物。请先运行 npm run build:vite。');
   }
 
+  const partition = session.fromPartition(rendererSession);
+  await configureRenderer(partition, dist, isDev);
+  await backend.request('ping');
+
   const win = new BrowserWindow({
     width: 400,
     height: 620,
@@ -70,28 +84,35 @@ async function createWindow() {
     show: false,
     backgroundColor: '#f5f7fa',
     title: 'Klipy',
-    icon: path.join(root, 'public', 'app-icon.png'),
+    icon: path.join(dist, 'app-icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      webSecurity: true,
+      devTools: isDev,
+      session: partition,
     },
   });
   mainWindow = win;
 
   win.setMenu(null);
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.webContents.on('will-navigate', (event, url) => {
-    if (url !== rendererUrl) event.preventDefault();
+  for (const name of ['will-frame-navigate', 'will-redirect', 'will-attach-webview']) {
+    win.webContents.on(name, (event) => event.preventDefault());
+  }
+  partition.on('will-download', (event, item, contents) => {
+    // Allow only the existing local PNG export, never file or remote downloads.
+    if (contents !== win.webContents || !item.getURL().startsWith('data:image/png;base64,') ||
+        !item.getFilename().toLowerCase().endsWith('.png')) event.preventDefault();
   });
   win.on('closed', () => { mainWindow = undefined; });
   for (const event of ['maximize', 'unmaximize']) {
     win.on(event, () => win.webContents.send('window:maximized-changed', win.isMaximized()));
   }
   win.once('ready-to-show', () => win.show());
-  if (isDev) await win.loadURL(rendererUrl);
-  else await win.loadFile(indexPath);
+  await win.loadURL(rendererUrl);
 }
 
 app.whenReady().then(() => {

@@ -1,21 +1,35 @@
 using System.Text.Json;
 
-namespace AuthenticatorBackend
+namespace AuthenticatorBackend;
+
+public static class Program
 {
-    public class Program
+    public static int Main()
     {
-        public static void Main(string[] args)
+        Console.InputEncoding = System.Text.Encoding.UTF8;
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+
+        FileStream dataLock;
+        try
         {
-            Console.InputEncoding = System.Text.Encoding.UTF8;
-            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            string directory = AppPaths.DataFolder();
+            Directory.CreateDirectory(directory);
+            dataLock = new FileStream(Path.Combine(directory, ".klipy.lock"), FileMode.OpenOrCreate,
+                FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (Exception)
+        {
+            return 21;
+        }
 
-            var store = new AccountStore();
-            var groupStore = new GroupStore();
-
-            // 账号必须属于一个存在的分组。旧版本允许「未分组」，或分组文件被删除后会留下孤儿账号，
-            // 这里把它们收进「默认分组」，避免账号在界面上不可见。
+        using (dataLock)
+        {
+            AccountStore store;
+            GroupStore groupStore;
             try
             {
+                groupStore = new GroupStore();
+                store = new AccountStore();
                 var orphans = store.FindOrphanGroupIds(groupStore.Exists);
                 if (orphans.Count > 0)
                 {
@@ -23,18 +37,18 @@ namespace AuthenticatorBackend
                     store.ReassignGroups(orphans, fallback.Id);
                 }
             }
-            catch
+            catch (Exception)
             {
-                // 修复失败不应阻止后端启动。
+                // Report a stable startup error, never dump file contents or exceptions to stderr.
+                return 20;
             }
 
             string? line;
             while ((line = Console.ReadLine()) != null)
             {
-                // 容忍被管道写入的 UTF-8 BOM，避免首条请求整行解析失败。
+                if (line.Length > 512 * 1024) continue;
                 line = line.TrimStart('\uFEFF');
                 if (string.IsNullOrWhiteSpace(line)) continue;
-
                 IpcResponse response;
                 try
                 {
@@ -42,18 +56,14 @@ namespace AuthenticatorBackend
                     if (req == null) continue;
                     response = BackendDispatcher.Dispatch(store, groupStore, req);
                 }
-                catch (Exception ex)
+                catch (JsonException)
                 {
-                    response = new IpcResponse
-                    {
-                        Success = false,
-                        Error = ex.Message
-                    };
+                    response = new IpcResponse { Success = false, Error = "请求格式无效。" };
                 }
-
                 Console.WriteLine(JsonSerializer.Serialize(response, BackendDispatcher.JsonOptions));
                 Console.Out.Flush();
             }
         }
+        return 0;
     }
 }

@@ -31,32 +31,21 @@ namespace AuthenticatorBackend
 
         private void Load()
         {
-            lock (_lock)
-            {
-                if (!File.Exists(_filePath)) return;
-
-                try
-                {
-                    var list = JsonSerializer.Deserialize<List<GroupRecord>>(File.ReadAllText(_filePath));
-                    if (list != null)
-                    {
-                        _groups = list
-                            .Where(g => !string.IsNullOrWhiteSpace(g.Id) && !string.IsNullOrWhiteSpace(g.Name))
-                            .ToList();
-                    }
-                }
-                catch
-                {
-                    // 分组文件损坏时从空分组开始，不影响账号库。
-                    _groups = new List<GroupRecord>();
-                }
-            }
+            var file = VaultFile.Read(_filePath);
+            if (file == null) return;
+            ReadOnlySpan<byte> json = file;
+            if (json.StartsWith(new byte[] { 0xef, 0xbb, 0xbf })) json = json[3..];
+            var groups = JsonSerializer.Deserialize<List<GroupRecord>>(json) ?? throw new InvalidDataException();
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (groups.Any(g => g == null || string.IsNullOrWhiteSpace(g.Id) ||
+                string.IsNullOrWhiteSpace(g.Name) || !ids.Add(g.Id))) throw new InvalidDataException();
+            _groups = groups;
         }
 
-        private void SaveUnsafe()
+        private void Commit(List<GroupRecord> groups)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            File.WriteAllText(_filePath, JsonSerializer.Serialize(_groups, options));
+            VaultFile.WriteAtomic(_filePath, JsonSerializer.SerializeToUtf8Bytes(groups));
+            _groups = groups;
         }
 
         public List<GroupDto> List()
@@ -92,8 +81,7 @@ namespace AuthenticatorBackend
                     Name = clean,
                     CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
                 };
-                _groups.Add(group);
-                SaveUnsafe();
+                Commit([.._groups, group]);
                 return ToDto(group);
             }
         }
@@ -113,8 +101,7 @@ namespace AuthenticatorBackend
                     Name = clean,
                     CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
                 };
-                _groups.Add(group);
-                SaveUnsafe();
+                Commit([.._groups, group]);
                 return ToDto(group);
             }
         }
@@ -131,8 +118,8 @@ namespace AuthenticatorBackend
                     throw new InvalidOperationException("分组名称已存在。");
                 }
 
-                group.Name = clean;
-                SaveUnsafe();
+                group = group with { Name = clean };
+                Commit(_groups.Select(g => g.Id == id ? group : g).ToList());
                 return ToDto(group);
             }
         }
@@ -141,9 +128,9 @@ namespace AuthenticatorBackend
         {
             lock (_lock)
             {
-                int removed = _groups.RemoveAll(g => g.Id == id);
-                if (removed == 0) return false;
-                SaveUnsafe();
+                var updated = _groups.Where(g => g.Id != id).ToList();
+                if (updated.Count == _groups.Count) return false;
+                Commit(updated);
                 return true;
             }
         }
@@ -174,8 +161,7 @@ namespace AuthenticatorBackend
                     }
                 }
 
-                _groups = reordered;
-                SaveUnsafe();
+                Commit(reordered);
                 return true;
             }
         }

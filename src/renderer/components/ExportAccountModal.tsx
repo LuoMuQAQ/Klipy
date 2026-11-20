@@ -14,7 +14,7 @@ import {
   Spinner,
   addToast,
 } from '@heroui/react';
-import { QrCode, Link, Key, Copy, Download } from 'lucide-react';
+import { QrCode, Link, Key, Copy, Download, Check } from 'lucide-react';
 import QRCode from 'qrcode';
 import { ExportAccountData } from '../types';
 
@@ -30,66 +30,75 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<string>('qr');
-  const [exportData, setExportData] = useState<ExportAccountData | null>(null);
-  const [qrDataUrl, setQrDataUrl] = useState<string>('');
-  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ id: string; data: ExportAccountData; qr: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const current = isOpen && result?.id === accountId ? result : null;
+  const exportData = current?.data;
+  const qrDataUrl = current?.qr;
 
   useEffect(() => {
-    if (!isOpen || !accountId) {
-      setExportData(null);
-      setQrDataUrl('');
-      return;
-    }
+    setResult(null);
+    setCopied(false);
+    if (!isOpen || !accountId) return;
 
     let cancelled = false;
-    setLoading(true);
-    window.authenticatorAPI
-      ?.exportAccount(accountId)
+    window.authenticatorAPI?.exportAccount(accountId)
       .then(async (data) => {
         if (cancelled) return;
-        setExportData(data);
         const url = await QRCode.toDataURL(data.uri, {
           width: 480,
           margin: 1,
           errorCorrectionLevel: 'M',
-          color: {
-            dark: '#11181c',
-            light: '#ffffff',
-          },
+          color: { dark: '#11181c', light: '#ffffff' },
         });
-        if (!cancelled) setQrDataUrl(url);
+        if (!cancelled) setResult({ id: accountId, data, qr: url });
       })
-      .catch((err) => {
-        console.error('Export failed:', err);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+      .catch(() => {
+        if (!cancelled) addToast({ title: '导出失败，请重试', color: 'danger', timeout: 1500 });
       });
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [isOpen, accountId]);
 
-  const handleCopyText = (text: string, label: string) => {
-    if (window.authenticatorAPI?.copyToClipboard) {
-      window.authenticatorAPI.copyToClipboard(text);
-    } else {
-      navigator.clipboard.writeText(text);
+  useEffect(() => {
+    if (!copied) return;
+    const timeout = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timeout);
+  }, [copied]);
+
+  const handleCopyText = async (text: string, label: string) => {
+    try {
+      if (!await window.authenticatorAPI?.copyToClipboard(text)) throw new Error();
+      addToast({ title: `已复制${label}`, color: 'success', timeout: 1500 });
+      return true;
+    } catch {
+      addToast({ title: '复制失败，请重试', color: 'danger', timeout: 1500 });
+      return false;
     }
-    addToast({
-      title: `已复制${label}`,
-      color: 'success',
-      timeout: 1500,
-    });
+  };
+
+  // Preserve keyboard copying from the read-only link and selected secret without
+  // routing it through Chromium's ordinary clipboard writer.
+  const handleSelectionCopy = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!exportData) return;
+    if (activeTab === 'uri' && target instanceof HTMLTextAreaElement && target.selectionStart !== target.selectionEnd) {
+      event.preventDefault();
+      void handleCopyText(target.value.slice(target.selectionStart, target.selectionEnd), '链接');
+    } else if (activeTab === 'base32') {
+      const text = window.getSelection()?.toString();
+      if (text && exportData.secret.includes(text)) {
+        event.preventDefault();
+        void handleCopyText(text, 'Base32 密钥');
+      }
+    }
   };
 
   const handleDownloadQr = () => {
     if (!qrDataUrl || !exportData) return;
-    const filename = `${exportData.issuer}-${exportData.account}-2fa.png`;
+    const stem = `${exportData.issuer}-${exportData.account}`.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
     const link = document.createElement('a');
     link.href = qrDataUrl;
-    link.download = filename;
+    link.download = `${stem.slice(0, 180)}-2fa.png`;
     link.click();
   };
 
@@ -104,7 +113,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
         base: 'bg-content1 border border-default-200',
       }}
     >
-      <ModalContent>
+      <ModalContent onCopyCapture={handleSelectionCopy}>
         {(modalClose) => (
           <>
             <ModalHeader className="pb-1 flex flex-col gap-0.5">
@@ -119,7 +128,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
             </ModalHeader>
 
             <ModalBody className="py-2 flex flex-col gap-3">
-              {loading || !exportData ? (
+              {!exportData ? (
                 <div className="flex items-center justify-center h-44">
                   <Spinner size="md" color="primary" />
                 </div>
@@ -217,8 +226,12 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
                         fullWidth
                         variant="flat"
                         color="primary"
-                        codeString={exportData.secret}
-                        onCopy={() => handleCopyText(exportData.secret, 'Base32 密钥')}
+                        // Override HeroUI's default handler rather than copying twice.
+                        copyButtonProps={{ onPress: async () => {
+                          if (await handleCopyText(exportData.secret, 'Base32 密钥')) setCopied(true);
+                        } }}
+                        copyIcon={copied ? <Check size={16} /> : undefined}
+                        tooltipProps={{ isDisabled: copied }}
                         classNames={{
                           pre: 'font-mono text-sm font-semibold tracking-wide break-all whitespace-pre-wrap',
                         }}

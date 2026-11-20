@@ -7,10 +7,10 @@ import './index.css';
 
 window.addEventListener('error', (e) => {
   if (e.message && e.message.includes('ResizeObserver')) return;
-  console.error('[Window Error]', e.error || e.message);
+  console.error('[Window Error]');
 });
-window.addEventListener('unhandledrejection', (e) => {
-  console.error('[Unhandled Rejection]', e.reason);
+window.addEventListener('unhandledrejection', () => {
+  console.error('[Unhandled Rejection]');
 });
 
 const rootEl = document.getElementById('root');

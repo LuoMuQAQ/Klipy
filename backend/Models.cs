@@ -4,8 +4,10 @@ using System.Text.Json.Serialization;
 
 namespace AuthenticatorBackend
 {
-    public class AccountRecord
+    public record AccountRecord
     {
+        public override string ToString() => nameof(AccountRecord);
+
         [JsonPropertyName("id")]
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
@@ -95,7 +97,7 @@ namespace AuthenticatorBackend
     }
 
     /// <summary>用户自建分组（保存在 groups.json）。</summary>
-    public class GroupRecord
+    public record GroupRecord
     {
         [JsonPropertyName("id")]
         public string Id { get; set; } = Guid.NewGuid().ToString("N");

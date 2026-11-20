@@ -73,9 +73,21 @@
 
 ## 🚀 启动与运行
 
+### Windows 安装包（推荐）
+
+在 [GitHub Releases](https://github.com/LuoMuQAQ/Klipy/releases) 下载 `Klipy-Setup-<版本>-x64.exe`，双击即可为当前 Windows 用户安装。安装包自带运行时，无需另外安装 Node.js 或 .NET。
+
+**覆盖更新**：退出 Klipy 后，直接运行新版 Setup。安装程序会复用原安装位置和快捷方式，无需先卸载；安装和卸载都不会删除账号或分组。当前为手动更新，不会在后台自行下载。可用同一 Release 的 `.sha256` 文件核对下载完整性；无代码签名的安装包可能显示 Windows 发布者提示。
+
+### 从源码运行
+
 首次运行或重新安装依赖后，先执行 `npm ci`、`npm run build:vite` 和 `npm run build:backend`。如果 npm 未运行 Electron 的安装脚本，额外执行 `node node_modules/electron/install.js`。
 
-应用继续使用 `%APPDATA%\WindowsAuthenticatorDemo\accounts.json`，分组数据在同目录 `groups.json`。`host/` 中的 WebView2 迁移源码仅作备份，不参与 Electron 构建或启动。
+账号库路径不变：`%APPDATA%\WindowsAuthenticatorDemo\accounts.json`。首次使用新版时，后端会把旧明文账号库自动迁移到 Windows DPAPI 当前用户加密格式，校验成功后才替换，不另外留下明文备份。分组数据仍在同目录 `groups.json`。`host/` 中的 WebView2 迁移源码仅作备份，不参与 Electron 构建或启动。
+
+- **不要用旧版 Klipy 打开已迁移的数据目录**。若新版报告数据不可读，请保留原文件，不要用空库覆盖。DPAPI 绑定 Windows 用户；换机或更换 Windows 用户前请使用现有导出功能。旧备份、导出的二维码和链接仍包含长期密钥，应妥善保管。
+- 应用内的验证码复制、导出链接和 Base32 复制仍可正常粘贴，但不会进入 Windows 剪贴板历史或跨设备同步。当前剪贴板仍可被有权限读取它的本机程序访问。
+- 测试请使用临时 `AUTHENTICATOR_DATA_DIR`，不要操作真实数据。构建后可运行 `npm run test:security` 和 `npm run test:desktop`，两者自行使用临时数据目录。维护者可用 `npm run build:setup` 在 `release/` 生成 Windows x64 Setup。
 
 ### 方式一：一键双击启动（最简单）
 直接双击项目根目录下的 **`启动.bat`** 即可启动。

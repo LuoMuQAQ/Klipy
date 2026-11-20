@@ -1,13 +1,18 @@
 {
   "name": "klipy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Klipy - Windows 轻量级 2FA / TOTP 身份验证器 (HeroUI + Electron + C#)",
+  "author": "LuoMuQAQ",
   "scripts": {
     "dev:vite": "vite",
     "dev": "concurrently -k \"npm run dev:vite\" \"npm run dev:electron\"",
     "build:backend": "dotnet publish backend/AuthenticatorBackend.csproj -c Release -o bin/backend",
     "build:vite": "vite build",
+    "build:backend:setup": "dotnet publish backend/AuthenticatorBackend.csproj -c Release -r win-x64 --self-contained true -p:DebugType=None -p:DebugSymbols=false -o bin/backend-win-x64",
+    "build:setup": "npm run build:vite && npm run build:backend:setup && electron-builder --win nsis --x64 --publish never",
     "start": "electron .",
+    "test:security": "node --test tests/security.test.cjs",
+    "test:desktop": "electron tests/electron-smoke.cjs",
     "dev:electron": "wait-on http-get://127.0.0.1:5173 && cross-env AUTHENTICATOR_DEV_URL=http://127.0.0.1:5173/ electron ."
   },
   "dependencies": {
@@ -30,7 +35,8 @@
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
-    "electron": "33.4.11",
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0",
     "postcss": "^8.5.1",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",
