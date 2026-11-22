@@ -19,9 +19,11 @@ import {
   addToast,
 } from '@heroui/react';
 import { Key, Link, QrCode, Upload } from 'lucide-react';
-import jsQR from 'jsqr';
 import { AddAccountParams, Group, MigrationParseResult, ParsedUriData } from '../types';
 import { formatError } from '../utils/errors';
+
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_QR_EDGE = 2048;
 
 interface AddAccountModalProps {
   isOpen: boolean;
@@ -29,6 +31,7 @@ interface AddAccountModalProps {
   defaultGroupId?: string;
   onClose: () => void;
   onAdd: (params: AddAccountParams) => Promise<void>;
+  onAdded: () => Promise<void>;
 }
 
 export const AddAccountModal: React.FC<AddAccountModalProps> = ({
@@ -37,6 +40,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
   defaultGroupId,
   onClose,
   onAdd,
+  onAdded,
 }) => {
   const [activeTab, setActiveTab] = useState<string>('manual');
   const [groupId, setGroupId] = useState(defaultGroupId ?? '');
@@ -52,7 +56,10 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
 
   // Google Authenticator 迁移链接（otpauth-migration://）解析结果，URI 与二维码两个页签共用
   const [migration, setMigration] = useState<MigrationParseResult | null>(null);
-  const uriRequestRef = useRef(0);
+  const parseRequestRef = useRef(0);
+  const uriTimer = useRef<number>();
+  const qrUrlRef = useRef<string>();
+  const submitting = useRef(false);
 
   // QR tab state
   const [qrPreviewUrl, setQrPreviewUrl] = useState<string | null>(null);
@@ -69,109 +76,120 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
       defaultGroupId && groups.some((group) => group.id === defaultGroupId)
         ? defaultGroupId
         : groups[0]?.id ?? '';
-    setGroupId(preferred);
+    setGroupId((current) => groups.some((group) => group.id === current) ? current : preferred);
   }, [isOpen, defaultGroupId, groups]);
 
-  const resetForm = () => {
-    setIssuer('');
-    setAccount('');
-    setSecret('');
+  useEffect(() => () => {
+    parseRequestRef.current += 1;
+    window.clearTimeout(uriTimer.current);
+    if (qrUrlRef.current) URL.revokeObjectURL(qrUrlRef.current);
+  }, []);
+
+  const clearQrPreview = () => {
+    if (qrUrlRef.current) URL.revokeObjectURL(qrUrlRef.current);
+    qrUrlRef.current = undefined;
+    setQrPreviewUrl(null);
+  };
+
+  const resetImport = () => {
+    parseRequestRef.current += 1;
+    window.clearTimeout(uriTimer.current);
     setUri('');
     setUriParsed(null);
     setMigration(null);
-    setQrPreviewUrl(null);
+    clearQrPreview();
     setQrParsed(null);
     setErrorMsg(null);
   };
 
-  const handleUriChange = async (val: string) => {
+  const resetForm = () => {
+    resetImport();
+    setGroupId('');
+    setIssuer('');
+    setAccount('');
+    setSecret('');
+  };
+
+  const parseImport = async (raw: string, source: 'uri' | 'qr', requestId: number) => {
+    try {
+      if (raw.toLowerCase().startsWith('otpauth-migration://')) {
+        const parsed = await window.authenticatorAPI.parseMigration(raw);
+        if (requestId !== parseRequestRef.current) return;
+        if (parsed.accounts.length === 0) {
+          setErrorMsg('迁移数据中没有可导入的 TOTP 账号');
+          return;
+        }
+        setMigration(parsed);
+      } else {
+        const parsed = await window.authenticatorAPI.parseUri(raw);
+        if (requestId !== parseRequestRef.current) return;
+        if (source === 'uri') setUriParsed(parsed);
+        else setQrParsed(parsed);
+      }
+    } catch (error) {
+      if (requestId === parseRequestRef.current) {
+        setErrorMsg(formatError(error, source === 'uri' ? '链接格式无效' : '二维码内容无效'));
+      }
+    }
+  };
+
+  const handleUriChange = (val: string) => {
+    const requestId = ++parseRequestRef.current;
+    window.clearTimeout(uriTimer.current);
     setUri(val);
     setErrorMsg(null);
     setUriParsed(null);
     setMigration(null);
-
     const trimmed = val.trim();
-    if (!trimmed) return;
-
-    const requestId = ++uriRequestRef.current;
-    try {
-      if (trimmed.toLowerCase().startsWith('otpauth-migration://')) {
-        const parsed = await window.authenticatorAPI.parseMigration(trimmed);
-        if (requestId !== uriRequestRef.current) return;
-        if (parsed.accounts.length === 0) {
-          setErrorMsg(parsed.skipped > 0 ? '链接中没有可导入的 TOTP 账号' : '链接中没有账号');
-          return;
-        }
-        setMigration(parsed);
-        return;
-      }
-
-      const parsed = await window.authenticatorAPI.parseUri(trimmed);
-      if (requestId !== uriRequestRef.current) return;
-      setUriParsed(parsed);
-    } catch {
-      if (requestId !== uriRequestRef.current) return;
-      setUriParsed(null);
-      setErrorMsg('链接格式无效');
-    }
+    if (trimmed) uriTimer.current = window.setTimeout(() => void parseImport(trimmed, 'uri', requestId), 180);
   };
 
   const decodeQrFromFile = (file: File) => {
+    if (submitting.current) return;
+    const requestId = ++parseRequestRef.current;
     setErrorMsg(null);
     setQrParsed(null);
     setMigration(null);
+    clearQrPreview();
+    if (file.size > MAX_IMAGE_BYTES) {
+      setErrorMsg('图片不能超过 20 MB。');
+      return;
+    }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setQrPreviewUrl(dataUrl);
-
-      const img = new window.Image();
-      img.onload = async () => {
+    const url = URL.createObjectURL(file);
+    qrUrlRef.current = url;
+    const img = new window.Image();
+    img.onload = async () => {
+      if (requestId !== parseRequestRef.current) return;
+      setQrPreviewUrl(url);
+      try {
+        const { default: jsQR } = await import('jsqr');
+        if (requestId !== parseRequestRef.current) return;
+        const scale = Math.min(1, MAX_QR_EDGE / Math.max(img.naturalWidth, img.naturalHeight));
         const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
         const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          setErrorMsg('无法读取图片画布');
-          return;
-        }
-
-        // Fill white backdrop so transparent QR PNGs decode cleanly
-        canvas.width = img.width;
-        canvas.height = img.height;
+        if (!ctx) throw new Error();
+        // Fill a white backdrop so transparent QR PNGs decode cleanly.
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0);
-
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(imageData.data, imageData.width, imageData.height);
-
-        if (!code || !code.data) {
-          setErrorMsg('未识别到有效二维码');
-          return;
-        }
-
-        try {
-          const raw = code.data.trim();
-          if (raw.toLowerCase().startsWith('otpauth-migration://')) {
-            const parsed = await window.authenticatorAPI.parseMigration(raw);
-            if (parsed.accounts.length === 0) {
-              setErrorMsg('二维码中没有可导入的 TOTP 账号');
-              return;
-            }
-            setMigration(parsed);
-          } else {
-            const parsed = await window.authenticatorAPI.parseUri(raw);
-            setQrParsed(parsed);
-          }
-        } catch {
-          setErrorMsg('二维码内容不是有效的 otpauth 链接');
-        }
-      };
-      img.onerror = () => setErrorMsg('图片加载失败');
-      img.src = dataUrl;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const raw = jsQR(data.data, data.width, data.height)?.data.trim();
+        if (raw) void parseImport(raw, 'qr', requestId);
+        else setErrorMsg('未识别到有效二维码');
+      } catch {
+        if (requestId === parseRequestRef.current) setErrorMsg('无法读取图片内容');
+      }
     };
-    reader.onerror = () => setErrorMsg('文件读取失败');
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      if (requestId !== parseRequestRef.current) return;
+      clearQrPreview();
+      setErrorMsg('图片加载失败');
+    };
+    img.src = url;
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -204,38 +222,39 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
   };
 
   const importMigration = async (payload: MigrationParseResult) => {
-    let added = 0;
-    const failed: string[] = [];
+    const result = await window.authenticatorAPI.addAccountsBatch({
+      groupId,
+      accounts: payload.accounts.map((item) => ({
+        issuer: item.issuer || '未命名',
+        account: item.account || '账号',
+        secret: item.secret,
+        digits: item.digits,
+        period: item.period,
+        algorithm: item.algorithm,
+      })),
+    });
 
-    for (const item of payload.accounts) {
-      try {
-        await onAdd({
-          issuer: item.issuer || '未命名',
-          account: item.account || '账号',
-          secret: item.secret,
-          digits: item.digits,
-          period: item.period,
-          algorithm: item.algorithm,
-          groupId,
-        });
-        added += 1;
-      } catch {
-        failed.push(item.account || item.issuer || '未命名');
-      }
-    }
-
-    if (added === 0) {
-      throw new Error('导入失败，请检查链接内容');
+    if (result.added === 0 && result.duplicates > 0) {
+      addToast({
+        title: `所有 ${result.duplicates} 个账号均已存在，未重复导入`,
+        color: 'warning',
+        timeout: 1_800,
+      });
+      return;
     }
 
     addToast({
-      title: failed.length ? `已导入 ${added} 个，${failed.length} 个失败` : `已导入 ${added} 个账号`,
-      color: failed.length ? 'warning' : 'success',
+      title:
+        result.duplicates > 0
+          ? `已导入 ${result.added} 个账号，跳过 ${result.duplicates} 个重复`
+          : `已导入 ${result.added} 个账号`,
+      color: 'success',
       timeout: 1_800,
     });
   };
 
   const handleSubmit = async () => {
+    if (submitting.current) return;
     setErrorMsg(null);
 
     if (!groupId) {
@@ -243,6 +262,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
       return;
     }
 
+    submitting.current = true;
     setLoading(true);
 
     try {
@@ -250,10 +270,6 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
         const cleanSecret = secret.trim().replace(/[\s-]/g, '').toUpperCase();
         if (!cleanSecret) {
           throw new Error('请输入密钥');
-        }
-
-        if (window.authenticatorAPI?.validateSecret) {
-          await window.authenticatorAPI.validateSecret(cleanSecret);
         }
 
         await onAdd({
@@ -299,11 +315,13 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
         }
       }
 
+      await onAdded();
       resetForm();
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       setErrorMsg(formatError(err, '添加失败'));
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   };
@@ -346,7 +364,8 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
           ))}
         </div>
         <p className="text-[11px] leading-4 text-default-500">
-          来自 Google Authenticator 迁移链接；「跳过」为 HOTP/MD5 或不兼容条目。
+          来自 Google Authenticator 迁移链接；「跳过」为 HOTP/MD5 或不兼容条目，已存在相同密钥的账号会自动跳过。
+          {migration.batchSize > 1 && '这份迁移含多个批次，请分别导入其余批次。'}
         </p>
       </CardBody>
     </Card>
@@ -355,7 +374,10 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
   return (
     <Modal
       isOpen={isOpen}
+      isDismissable={!loading}
+      isKeyboardDismissDisabled={loading}
       onClose={() => {
+        if (submitting.current) return;
         resetForm();
         onClose();
       }}
@@ -394,12 +416,11 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
               <Tabs
                 selectedKey={activeTab}
                 onSelectionChange={(key) => {
-                  setActiveTab(key as string);
-                  setErrorMsg(null);
-                  setUriParsed(null);
-                  setQrParsed(null);
-                  setMigration(null);
+                  if (submitting.current || key === activeTab) return;
+                  resetImport();
+                  setActiveTab(String(key));
                 }}
+                isDisabled={loading}
                 color="primary"
                 size="sm"
                 variant="bordered"
@@ -448,6 +469,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                     label="平台"
                     size="sm"
                     variant="bordered"
+                    isDisabled={loading}
                     value={issuer}
                     onValueChange={setIssuer}
                   />
@@ -456,6 +478,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                     label="账号"
                     size="sm"
                     variant="bordered"
+                    isDisabled={loading}
                     value={account}
                     onValueChange={setAccount}
                   />
@@ -464,6 +487,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                     label="密钥 (Base32)"
                     size="sm"
                     variant="bordered"
+                    isDisabled={loading}
                     value={secret}
                     onValueChange={(val) => {
                       setSecret(val.toUpperCase());
@@ -479,6 +503,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                     label="OTP Auth 链接"
                     size="sm"
                     variant="bordered"
+                    isDisabled={loading}
                     value={uri}
                     onValueChange={handleUriChange}
                   />
@@ -519,6 +544,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
 
                   <Card
                     isPressable
+                    isDisabled={loading}
                     disableRipple
                     shadow="none"
                     onPress={() => fileInputRef.current?.click()}
@@ -565,7 +591,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
             </ModalBody>
 
             <ModalFooter className="pt-2 pb-3">
-              <Button size="sm" variant="light" onPress={modalClose}>
+              <Button size="sm" variant="light" onPress={modalClose} isDisabled={loading}>
                 取消
               </Button>
               <Button

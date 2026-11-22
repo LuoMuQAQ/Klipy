@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('authenticatorAPI', {
   listAccounts: () => ipcRenderer.invoke('authenticator:list'),
   addAccount: (params) => ipcRenderer.invoke('authenticator:add', params),
+  addAccountsBatch: (params) => ipcRenderer.invoke('authenticator:addBatch', params),
   deleteAccount: (id) => ipcRenderer.invoke('authenticator:delete', { id }),
   updateAccount: (params) => ipcRenderer.invoke('authenticator:update', params),
   parseUri: (uri) => ipcRenderer.invoke('authenticator:parseUri', { uri }),
@@ -15,6 +16,7 @@ contextBridge.exposeInMainWorld('authenticatorAPI', {
   reorderGroups: (ids) => ipcRenderer.invoke('authenticator:groupReorder', { ids }),
   reorderAccounts: (ids) => ipcRenderer.invoke('authenticator:reorder', { ids }),
   exportAccount: (id) => ipcRenderer.invoke('authenticator:export', { id }),
+  copyAccountCode: (id) => ipcRenderer.invoke('authenticator:copyCode', { id }),
   copyToClipboard: (text) => ipcRenderer.invoke('authenticator:copy', text),
   minimize: () => ipcRenderer.invoke('window:minimize'),
   maximize: () => ipcRenderer.invoke('window:maximize'),

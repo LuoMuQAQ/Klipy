@@ -53,6 +53,9 @@ namespace AuthenticatorBackend
         [JsonPropertyName("remainingSeconds")]
         public int RemainingSeconds { get; set; }
 
+        [JsonPropertyName("validUntil")]
+        public long ValidUntil { get; set; }
+
         [JsonPropertyName("period")]
         public int Period { get; set; }
 
@@ -96,7 +99,7 @@ namespace AuthenticatorBackend
         public string Algorithm { get; set; } = "SHA1";
     }
 
-    /// <summary>用户自建分组（保存在 groups.json）。</summary>
+    /// <summary>用户自建分组（与账号一并保存在统一加密保险库中）。</summary>
     public record GroupRecord
     {
         [JsonPropertyName("id")]
@@ -107,6 +110,37 @@ namespace AuthenticatorBackend
 
         [JsonPropertyName("createdAt")]
         public long CreatedAt { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    }
+
+    public sealed class VaultSnapshot
+    {
+        [JsonPropertyName("groups")]
+        public List<GroupRecord> Groups { get; set; } = new List<GroupRecord>();
+
+        [JsonPropertyName("accounts")]
+        public List<AccountRecord> Accounts { get; set; } = new List<AccountRecord>();
+    }
+
+    public sealed class BatchAccountInput
+    {
+        public string Issuer { get; init; } = "";
+        public string Account { get; init; } = "";
+        public string Secret { get; init; } = "";
+        public int Digits { get; init; } = 6;
+        public int Period { get; init; } = 30;
+        public string Algorithm { get; init; } = "SHA1";
+    }
+
+    public sealed class BatchImportResultDto
+    {
+        [JsonPropertyName("added")]
+        public int Added { get; set; }
+
+        [JsonPropertyName("duplicates")]
+        public int Duplicates { get; set; }
+
+        [JsonPropertyName("accounts")]
+        public List<AccountDto> Accounts { get; set; } = new List<AccountDto>();
     }
 
     public class GroupDto

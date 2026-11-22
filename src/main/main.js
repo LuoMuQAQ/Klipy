@@ -34,6 +34,7 @@ function registerIpc() {
   const actions = {
     list: 'list',
     add: 'add',
+    addBatch: 'addbatch',
     delete: 'delete',
     update: 'update',
     parseUri: 'parseuri',
@@ -46,6 +47,7 @@ function registerIpc() {
     groupReorder: 'groupreorder',
     reorder: 'reorder',
     export: 'export',
+    copyCode: 'copycode',
   };
   for (const [channel, action] of Object.entries(actions)) {
     handle(`authenticator:${channel}`, (params) => {

@@ -6,7 +6,7 @@ const { readFileSync, writeFileSync, existsSync, mkdtempSync, mkdirSync, rmSync,
 const path = require('node:path');
 const os = require('node:os');
 const { once } = require('node:events');
-const { listPackage, extractFile } = require('@electron/asar');
+const { listPackage, extractFile, uncache } = require('@electron/asar');
 
 const [, , first, second] = process.argv;
 assert(first && process.platform === 'win32', 'Usage: node tests/setup-smoke.cjs Klipy.exe OR older-setup.exe newer-setup.exe');
@@ -30,12 +30,14 @@ async function until(read, description) {
   throw new Error(`Timed out: ${description}`);
 }
 
-function packagedVersion(executable) {
+function packagedVersion(executable, { requireFontLicense = true } = {}) {
   const resources = path.join(path.dirname(executable), 'resources');
   const asar = path.join(resources, 'app.asar');
+  uncache(asar);
   const files = listPackage(asar);
   assert(files.includes('\\src\\main\\main.js') && files.includes('\\dist\\index.html'));
   assert(!files.some(f => /(^|[\\/])(?:accounts\.json|groups\.json|\.git|\.env|node_modules)(?:$|[\\/])/i.test(f)));
+  if (requireFontLicense) assert(existsSync(path.join(resources, 'licenses', 'MiSans-LICENSE.txt')), 'missing MiSans license');
   const backend = readdirSync(path.join(resources, 'backend'));
   for (const name of ['AuthenticatorBackend.exe', 'coreclr.dll', 'hostfxr.dll']) assert(backend.includes(name), name);
   assert(backend.every(f => /\.(exe|dll|json)$/i.test(f) && !/^(accounts|groups)\.json$/i.test(f)));
@@ -123,8 +125,9 @@ function guardNoExistingInstall() {
       const exe = path.resolve(first);
       const version = packagedVersion(exe);
       await launch(exe, 'unpacked');
-      assert(readFileSync(vault).subarray(0, 14).toString().startsWith('KLIPY-DPAPI-1'));
-      console.log(`PASS packaged Klipy ${version}: self-contained backend, asset allowlist, migrated test vault, account UI.`);
+      assert(readFileSync(vault).subarray(0, 14).toString().startsWith('KLIPY-DPAPI-2'));
+      assert.equal(existsSync(groupsFile), false);
+      console.log(`PASS packaged Klipy ${version}: self-contained backend, asset allowlist, migrated unified v2 vault, account UI.`);
       return;
     }
     guardNoExistingInstall();
@@ -132,24 +135,24 @@ function guardNoExistingInstall() {
     uninstaller = path.join(installDir, 'Uninstall Klipy.exe');
     runInstaller(first, ['/S', `/D=${installDir}`]);
     const exe = path.join(installDir, 'Klipy.exe');
-    const old = packagedVersion(exe);
+    const old = packagedVersion(exe, { requireFontLicense: false });
     await launch(exe, 'old');
     const before = readFileSync(vault);
-    const groupsBefore = readFileSync(groupsFile);
-    assert(before.toString('utf8', 0, 14).startsWith('KLIPY-DPAPI-1'));
+    assert(before.toString('utf8', 0, 14).startsWith('KLIPY-DPAPI-'));
     // Deliberately omit /D on upgrade. The installer must find the existing per-user install directory.
     runInstaller(second, ['/S']);
     const next = packagedVersion(exe);
     assert.notEqual(old, next, 'The existing version was not replaced');
     await launch(exe, 'new');
-    assert.deepEqual(readFileSync(vault), before);
-    assert.deepEqual(readFileSync(groupsFile), groupsBefore);
+    const afterUpgrade = readFileSync(vault);
+    assert(afterUpgrade.toString('utf8', 0, 14).startsWith('KLIPY-DPAPI-2'));
+    assert.equal(existsSync(groupsFile), false);
     runInstaller(uninstaller, ['/S']);
     uninstaller = undefined;
     // NSIS launches its uninstaller from a temporary location after the original exits.
     await until(() => !existsSync(exe), 'NSIS uninstall');
-    assert.deepEqual(readFileSync(vault), before);
-    console.log(`PASS NSIS ${old} -> ${next}: same install directory, verified UI and encrypted accounts, vault kept after uninstall.`);
+    assert.deepEqual(readFileSync(vault), afterUpgrade);
+    console.log(`PASS NSIS ${old} -> ${next}: same install directory, verified UI and unified v2 vault upgrade, vault kept after uninstall.`);
   } finally {
     if (uninstaller && existsSync(uninstaller)) runInstaller(uninstaller, ['/S']);
     try { rmSync(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Modal,
   ModalContent,
@@ -14,7 +14,7 @@ interface DeleteConfirmModalProps {
   account: Account | null;
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => Promise<void>;
 }
 
 export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
@@ -23,12 +23,28 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   onClose,
   onConfirm,
 }) => {
+  const pending = useRef(false);
+  const [deleting, setDeleting] = useState(false);
   if (!account) return null;
+
+  const confirm = async () => {
+    if (pending.current) return;
+    pending.current = true;
+    setDeleting(true);
+    try {
+      await onConfirm();
+    } finally {
+      pending.current = false;
+      setDeleting(false);
+    }
+  };
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
+      isDismissable={!deleting}
+      isKeyboardDismissDisabled={deleting}
       size="xs"
       placement="center"
       backdrop="opaque"
@@ -47,10 +63,10 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
               确定要删除 <span className="font-semibold text-primary">{account.issuer}</span> ({account.account}) 吗？
             </ModalBody>
             <ModalFooter className="pt-2 pb-3">
-              <Button size="sm" variant="light" onPress={modalClose}>
+              <Button size="sm" variant="light" onPress={modalClose} isDisabled={deleting}>
                 取消
               </Button>
-              <Button size="sm" color="danger" onPress={onConfirm}>
+              <Button size="sm" color="danger" onPress={confirm} isLoading={deleting}>
                 删除
               </Button>
             </ModalFooter>

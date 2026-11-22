@@ -19,7 +19,16 @@ namespace AuthenticatorBackend
                 : "";
         }
 
-        public static IpcResponse Dispatch(AccountStore store, GroupStore groupStore, IpcRequest req)
+        private static int ReadOptionalInt(JsonElement obj, string name, int fallback)
+        {
+            if (!obj.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
+                return fallback;
+            if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out int parsed))
+                throw new ArgumentException("参数类型无效。");
+            return parsed;
+        }
+
+        public static IpcResponse Dispatch(VaultStore store, IpcRequest req)
         {
             var response = new IpcResponse { Id = req.Id };
 
@@ -30,6 +39,12 @@ namespace AuthenticatorBackend
                     case "ping":
                         response.Success = true;
                         response.Data = new { message = "pong", time = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
+                        break;
+
+                    case "copycode":
+                        var requested = store.GetAccountWithCode(ReadString(req.Params, "id"));
+                        response.Success = true;
+                        response.Data = requested != null && PrivateClipboard.Write(requested.Code);
                         break;
 
                     case "copyprivate":
@@ -44,28 +59,17 @@ namespace AuthenticatorBackend
                         break;
 
                     case "add":
-                        if (req.Params.HasValue)
+                        if (req.Params is { ValueKind: JsonValueKind.Object } addParams)
                         {
-                            var p = req.Params.Value;
-                            string issuer = p.TryGetProperty("issuer", out var propIss) ? propIss.GetString() ?? "" : "";
-                            string account = p.TryGetProperty("account", out var propAcc) ? propAcc.GetString() ?? "" : "";
-                            string secret = p.TryGetProperty("secret", out var propSec) ? propSec.GetString() ?? "" : "";
-                            int digits = p.TryGetProperty("digits", out var propDig) ? propDig.GetInt32() : 6;
-                            int period = p.TryGetProperty("period", out var propPer) ? propPer.GetInt32() : 30;
-                            string algo = p.TryGetProperty("algorithm", out var propAlg) ? propAlg.GetString() ?? "SHA1" : "SHA1";
-                            string groupId = ReadString(req.Params, "groupId").Trim();
-                            if (groupId.Length == 0)
-                            {
-                                response.Success = false;
-                                response.Error = "请先选择分组。";
-                                break;
-                            }
-                            if (!groupStore.Exists(groupId))
-                            {
-                                response.Success = false;
-                                response.Error = "分组不存在。";
-                                break;
-                            }
+                            string issuer = ReadString(req.Params, "issuer");
+                            string account = ReadString(req.Params, "account");
+                            string secret = ReadString(req.Params, "secret");
+                            int digits = ReadOptionalInt(addParams, "digits", 6);
+                            int period = ReadOptionalInt(addParams, "period", 30);
+                            string algo = addParams.TryGetProperty("algorithm", out var propAlg) && propAlg.ValueKind == JsonValueKind.String
+                                ? propAlg.GetString() ?? "SHA1"
+                                : "SHA1";
+                            string groupId = ReadString(req.Params, "groupId");
 
                             response.Success = true;
                             response.Data = store.AddAccount(issuer, account, secret, digits, period, algo, groupId);
@@ -77,11 +81,44 @@ namespace AuthenticatorBackend
                         }
                         break;
 
+                    case "addbatch":
+                        if (req.Params is { ValueKind: JsonValueKind.Object } batchParams &&
+                            batchParams.TryGetProperty("accounts", out var batchAccounts) &&
+                            batchAccounts.ValueKind == JsonValueKind.Array)
+                        {
+                            string groupId = ReadString(req.Params, "groupId");
+                            var items = new List<BatchAccountInput>();
+                            foreach (var entry in batchAccounts.EnumerateArray())
+                            {
+                                if (entry.ValueKind != JsonValueKind.Object)
+                                    throw new ArgumentException("批量导入包含无效条目。");
+                                items.Add(new BatchAccountInput
+                                {
+                                    Issuer = ReadString(entry, "issuer"),
+                                    Account = ReadString(entry, "account"),
+                                    Secret = ReadString(entry, "secret"),
+                                    Digits = ReadOptionalInt(entry, "digits", 6),
+                                    Period = ReadOptionalInt(entry, "period", 30),
+                                    Algorithm = entry.TryGetProperty("algorithm", out var propAlg) && propAlg.ValueKind == JsonValueKind.String
+                                        ? propAlg.GetString() ?? "SHA1"
+                                        : "SHA1"
+                                });
+                            }
+
+                            response.Success = true;
+                            response.Data = store.AddAccountsBatch(groupId, items);
+                        }
+                        else
+                        {
+                            response.Success = false;
+                            response.Error = "Missing parameters for addbatch action.";
+                        }
+                        break;
+
                     case "delete":
                         if (req.Params.HasValue)
                         {
-                            var p = req.Params.Value;
-                            string id = p.TryGetProperty("id", out var propId) ? propId.GetString() ?? "" : "";
+                            string id = ReadString(req.Params, "id");
                             bool deleted = store.DeleteAccount(id);
                             response.Success = deleted;
                             if (!deleted)
@@ -99,23 +136,10 @@ namespace AuthenticatorBackend
                     case "update":
                         if (req.Params.HasValue)
                         {
-                            var p = req.Params.Value;
-                            string id = p.TryGetProperty("id", out var propId) ? propId.GetString() ?? "" : "";
-                            string issuer = p.TryGetProperty("issuer", out var propIss) ? propIss.GetString() ?? "" : "";
-                            string account = p.TryGetProperty("account", out var propAcc) ? propAcc.GetString() ?? "" : "";
-                            string groupId = ReadString(req.Params, "groupId").Trim();
-                            if (groupId.Length == 0)
-                            {
-                                response.Success = false;
-                                response.Error = "请先选择分组。";
-                                break;
-                            }
-                            if (!groupStore.Exists(groupId))
-                            {
-                                response.Success = false;
-                                response.Error = "分组不存在。";
-                                break;
-                            }
+                            string id = ReadString(req.Params, "id");
+                            string issuer = ReadString(req.Params, "issuer");
+                            string account = ReadString(req.Params, "account");
+                            string groupId = ReadString(req.Params, "groupId");
 
                             var updated = store.UpdateAccount(id, issuer, account, groupId);
                             if (updated != null)
@@ -139,8 +163,7 @@ namespace AuthenticatorBackend
                     case "parseuri":
                         if (req.Params.HasValue)
                         {
-                            var p = req.Params.Value;
-                            string uri = p.TryGetProperty("uri", out var propUri) ? propUri.GetString() ?? "" : "";
+                            string uri = ReadString(req.Params, "uri");
                             var parsed = TotpEngine.ParseOtpAuthUri(uri);
                             response.Success = true;
                             response.Data = new
@@ -170,19 +193,19 @@ namespace AuthenticatorBackend
 
                     case "grouplist":
                         response.Success = true;
-                        response.Data = groupStore.List();
+                        response.Data = store.ListGroups();
                         break;
 
                     case "groupadd":
                         response.Success = true;
-                        response.Data = groupStore.Add(ReadString(req.Params, "name"));
+                        response.Data = store.AddGroup(ReadString(req.Params, "name"));
                         break;
 
                     case "grouprename":
                     {
                         var id = ReadString(req.Params, "id");
                         var name = ReadString(req.Params, "name");
-                        var updated = groupStore.Rename(id, name);
+                        var updated = store.RenameGroup(id, name);
                         if (updated == null)
                         {
                             response.Success = false;
@@ -199,14 +222,14 @@ namespace AuthenticatorBackend
                     case "groupdelete":
                     {
                         var id = ReadString(req.Params, "id");
-                        if (!groupStore.Delete(id))
+                        var (deleted, removed) = store.DeleteGroup(id);
+                        if (!deleted)
                         {
                             response.Success = false;
                             response.Error = "分组不存在。";
                             break;
                         }
 
-                        int removed = store.DeleteByGroup(id);
                         response.Success = true;
                         response.Data = new { deleted = true, removedAccounts = removed };
                         break;
@@ -221,7 +244,7 @@ namespace AuthenticatorBackend
                                 var s = item.GetString();
                                 if (!string.IsNullOrEmpty(s)) ids.Add(s);
                             }
-                            bool reordered = groupStore.Reorder(ids);
+                            bool reordered = store.ReorderGroups(ids);
                             response.Success = reordered;
                             if (!reordered)
                             {
@@ -238,9 +261,8 @@ namespace AuthenticatorBackend
                     case "validatesecret":
                         if (req.Params.HasValue)
                         {
-                            var p = req.Params.Value;
-                            string secret = p.TryGetProperty("secret", out var propSec) ? propSec.GetString() ?? "" : "";
-                            TotpEngine.DecodeBase32(secret);
+                            string secret = ReadString(req.Params, "secret");
+                            TotpEngine.ValidateSecret(secret);
                             response.Success = true;
                             response.Data = new { valid = true };
                         }
@@ -277,8 +299,7 @@ namespace AuthenticatorBackend
                     case "export":
                         if (req.Params.HasValue)
                         {
-                            var p = req.Params.Value;
-                            string id = p.TryGetProperty("id", out var propId) ? propId.GetString() ?? "" : "";
+                            string id = ReadString(req.Params, "id");
                             var exported = store.ExportAccount(id);
                             if (exported != null)
                             {

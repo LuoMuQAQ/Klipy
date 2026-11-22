@@ -24,18 +24,10 @@ public static class Program
 
         using (dataLock)
         {
-            AccountStore store;
-            GroupStore groupStore;
+            VaultStore store;
             try
             {
-                groupStore = new GroupStore();
-                store = new AccountStore();
-                var orphans = store.FindOrphanGroupIds(groupStore.Exists);
-                if (orphans.Count > 0)
-                {
-                    var fallback = groupStore.Ensure("默认分组");
-                    store.ReassignGroups(orphans, fallback.Id);
-                }
+                store = new VaultStore();
             }
             catch (Exception)
             {
@@ -54,7 +46,7 @@ public static class Program
                 {
                     var req = JsonSerializer.Deserialize<IpcRequest>(line, BackendDispatcher.JsonOptions);
                     if (req == null) continue;
-                    response = BackendDispatcher.Dispatch(store, groupStore, req);
+                    response = BackendDispatcher.Dispatch(store, req);
                 }
                 catch (JsonException)
                 {

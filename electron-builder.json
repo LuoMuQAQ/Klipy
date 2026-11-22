@@ -4,7 +4,10 @@
   "productName": "Klipy",
   "directories": { "output": "release" },
   "files": ["dist/**/*", "src/main/*.js", "!node_modules/**/*"],
-  "extraResources": [{ "from": "bin/backend-win-x64", "to": "backend" }],
+  "extraResources": [
+    { "from": "bin/backend-win-x64", "to": "backend" },
+    { "from": "src/renderer/fonts/misans/LICENSE", "to": "licenses/MiSans-LICENSE.txt" }
+  ],
   "win": {
     "target": [{ "target": "nsis", "arch": ["x64"] }],
     "icon": "public/app-icon.png",

@@ -18,7 +18,7 @@ import {
   addToast,
 } from '@heroui/react';
 import { Reorder, useReducedMotion, type Transition } from 'framer-motion';
-import { Folder, FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Folder, FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react';
 import type { Account, Group } from '../types';
 import { formatError } from '../utils/errors';
 
@@ -175,6 +175,17 @@ export function GroupManagementPage({
     }
   };
 
+  const handleMoveGroup = (group: Group, delta: -1 | 1) => {
+    const index = groups.findIndex((item) => item.id === group.id);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= groups.length) return;
+
+    const next = [...groups];
+    [next[index], next[target]] = [next[target], next[index]];
+    onReorder(next);
+    onReorderEnd();
+  };
+
   const handleContextMenu = (e: React.MouseEvent, group: Group) => {
     e.preventDefault();
     e.stopPropagation();
@@ -184,6 +195,48 @@ export function GroupManagementPage({
       y: Math.round(e.clientY),
     });
   };
+
+  const handleGroupKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, group: Group) => {
+    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault();
+      const rect = e.currentTarget.getBoundingClientRect();
+      setContextMenu({
+        group,
+        x: Math.round(Math.min(rect.right - 24, window.innerWidth - 140)),
+        y: Math.round(rect.top + rect.height / 2),
+      });
+    } else if (e.altKey && e.key === 'ArrowUp') {
+      e.preventDefault();
+      void handleMoveGroup(group, -1);
+    } else if (e.altKey && e.key === 'ArrowDown') {
+      e.preventDefault();
+      void handleMoveGroup(group, 1);
+    }
+  };
+
+  const contextGroupIndex = contextMenu
+    ? groups.findIndex((item) => item.id === contextMenu.group.id)
+    : -1;
+  const groupMenuDisabledKeys = useMemo(() => {
+    const keys: string[] = [];
+    if (contextGroupIndex <= 0) keys.push('moveUp');
+    if (contextGroupIndex < 0 || contextGroupIndex >= groups.length - 1) keys.push('moveDown');
+    return keys;
+  }, [contextGroupIndex, groups.length]);
+
+  const groupMenuItems = useMemo(() => {
+    const items: Array<{ key: string; label: string; icon: React.ReactNode; isDanger?: boolean }> = [
+      { key: 'rename', label: '重命名', icon: <Pencil size={14} /> },
+    ];
+    if (groups.length > 1) {
+      items.push(
+        { key: 'moveUp', label: '上移', icon: <ArrowUp size={14} /> },
+        { key: 'moveDown', label: '下移', icon: <ArrowDown size={14} /> },
+      );
+    }
+    items.push({ key: 'delete', label: '删除', icon: <Trash2 size={14} />, isDanger: true });
+    return items;
+  }, [groups.length]);
 
   const deleteCount = deleteTarget ? countFor(deleteTarget.id) : 0;
 
@@ -243,8 +296,10 @@ export function GroupManagementPage({
                   <Card
                     shadow="none"
                     radius="lg"
+                    tabIndex={0}
                     onContextMenu={(e) => handleContextMenu(e, group)}
-                    className="w-full border border-default-200 bg-content1 shadow-[0_1px_2px_rgba(17,24,28,0.05)] hover:border-primary hover:shadow-[0_6px_16px_rgba(79,70,229,0.10)] transition-[border-color,box-shadow,background-color] duration-150 cursor-grab active:cursor-grabbing"
+                    onKeyDown={(e) => handleGroupKeyDown(e, group)}
+                    className="w-full border border-default-200 bg-content1 shadow-[0_1px_2px_rgba(17,24,28,0.05)] hover:border-primary hover:shadow-[0_6px_16px_rgba(79,70,229,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-[border-color,box-shadow,background-color] duration-150 cursor-grab active:cursor-grabbing"
                   >
                     <CardBody className="flex flex-row items-center justify-between gap-3 px-3.5 py-3">
                       <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -298,28 +353,33 @@ export function GroupManagementPage({
         </DropdownTrigger>
         <DropdownMenu
           aria-label="分组操作"
+          items={groupMenuItems}
+          disabledKeys={groupMenuDisabledKeys}
           onAction={(key) => {
             const target = contextMenu?.group;
             setContextMenu(null);
             if (!target) return;
             if (key === 'rename') {
               openRename(target);
+            } else if (key === 'moveUp') {
+              void handleMoveGroup(target, -1);
+            } else if (key === 'moveDown') {
+              void handleMoveGroup(target, 1);
             } else if (key === 'delete') {
               setDeleteTarget(target);
             }
           }}
         >
-          <DropdownItem key="rename" startContent={<Pencil size={14} />}>
-            重命名
-          </DropdownItem>
-          <DropdownItem
-            key="delete"
-            color="danger"
-            className="text-danger"
-            startContent={<Trash2 size={14} />}
-          >
-            删除
-          </DropdownItem>
+          {(item) => (
+            <DropdownItem
+              key={item.key}
+              color={item.isDanger ? 'danger' : 'default'}
+              className={item.isDanger ? 'text-danger' : undefined}
+              startContent={item.icon}
+            >
+              {item.label}
+            </DropdownItem>
+          )}
         </DropdownMenu>
       </Dropdown>
 

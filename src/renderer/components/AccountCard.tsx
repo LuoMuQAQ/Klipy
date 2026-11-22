@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Card,
   CardBody,
@@ -12,13 +12,52 @@ interface AccountCardProps {
   isCopied?: boolean;
   onCopy: (account: Account) => void;
   onContextMenu: (e: React.MouseEvent, account: Account) => void;
+  onKeyboardContextMenu?: (rect: DOMRect, account: Account) => void;
+  onMove?: (account: Account, delta: -1 | 1) => void;
 }
+
+const CustomPeriodCountdown: React.FC<{ period: number }> = ({ period }) => {
+  const computeRemaining = () => period - (Math.floor(Date.now() / 1000) % period);
+  const [remaining, setRemaining] = useState(computeRemaining);
+
+  useEffect(() => {
+    let timer: number;
+    const schedule = () => {
+      setRemaining(computeRemaining());
+      const now = Date.now();
+      timer = window.setTimeout(schedule, 1000 - (now % 1000));
+    };
+    schedule();
+    return () => window.clearTimeout(timer);
+  }, [period]);
+
+  const dangerThreshold = Math.min(5, Math.max(1, Math.floor(period / 4)));
+  const warnThreshold = Math.min(10, Math.max(2, Math.floor(period / 3)));
+  const colorClass =
+    remaining <= dangerThreshold
+      ? 'text-danger'
+      : remaining <= warnThreshold
+      ? 'text-warning'
+      : 'text-default-400';
+
+  return (
+    <span
+      data-slot="custom-period"
+      aria-label={`周期 ${period} 秒，剩余 ${remaining} 秒`}
+      className={`text-[10px] leading-none font-medium tabular-nums ${colorClass}`}
+    >
+      {remaining}s / {period}s
+    </span>
+  );
+};
 
 export const AccountCard: React.FC<AccountCardProps> = ({
   account,
   isCopied = false,
   onCopy,
   onContextMenu,
+  onKeyboardContextMenu,
+  onMove,
 }) => {
   const formattedCode =
     account.code.length === 6
@@ -29,6 +68,20 @@ export const AccountCard: React.FC<AccountCardProps> = ({
 
   const brand = resolveBrand(account.issuer, account.account);
   const initials = account.issuer.trim().slice(0, 2).toUpperCase() || '2F';
+  const hasCustomPeriod = account.period !== 30;
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault();
+      onKeyboardContextMenu?.(e.currentTarget.getBoundingClientRect(), account);
+    } else if (e.altKey && e.key === 'ArrowUp') {
+      e.preventDefault();
+      onMove?.(account, -1);
+    } else if (e.altKey && e.key === 'ArrowDown') {
+      e.preventDefault();
+      onMove?.(account, 1);
+    }
+  };
 
   return (
     <Card
@@ -38,6 +91,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
       shadow="none"
       onPress={() => onCopy(account)}
       onContextMenu={(e) => onContextMenu(e, account)}
+      onKeyDown={handleKeyDown}
       className="w-full border border-default-200 bg-content1 shadow-[0_1px_2px_rgba(17,24,28,0.05)] hover:border-primary hover:shadow-[0_6px_16px_rgba(79,70,229,0.10)] data-[pressed=true]:scale-100 data-[pressed=true]:bg-default-50 transition-[border-color,box-shadow,background-color] duration-150 cursor-grab active:cursor-grabbing"
     >
       <CardBody className="px-3.5 py-3 flex flex-row items-center justify-between gap-3">
@@ -66,13 +120,26 @@ export const AccountCard: React.FC<AccountCardProps> = ({
           }}
         />
 
-        <span
-          className={`otp-code flex-shrink-0 transition-colors ${
-            isCopied ? 'text-success' : 'text-primary'
-          }`}
-        >
-          {formattedCode}
-        </span>
+        {hasCustomPeriod ? (
+          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+            <span
+              className={`otp-code transition-colors ${
+                isCopied ? 'text-success' : 'text-primary'
+              }`}
+            >
+              {formattedCode}
+            </span>
+            <CustomPeriodCountdown period={account.period} />
+          </div>
+        ) : (
+          <span
+            className={`otp-code flex-shrink-0 transition-colors ${
+              isCopied ? 'text-success' : 'text-primary'
+            }`}
+          >
+            {formattedCode}
+          </span>
+        )}
       </CardBody>
     </Card>
   );

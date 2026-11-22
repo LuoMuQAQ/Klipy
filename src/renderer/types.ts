@@ -4,6 +4,8 @@ export interface Account {
   account: string;
   code: string;
   remainingSeconds: number;
+  /** Exclusive expiry in Unix seconds. */
+  validUntil: number;
   period: number;
   digits: number;
   algorithm: string;
@@ -26,6 +28,26 @@ export interface AddAccountParams {
   algorithm?: string;
   /** 账号必须加入一个已存在的分组。 */
   groupId: string;
+}
+
+export interface BatchAccountItem {
+  issuer: string;
+  account: string;
+  secret: string;
+  digits?: number;
+  period?: number;
+  algorithm?: string;
+}
+
+export interface AddAccountsBatchParams {
+  groupId: string;
+  accounts: BatchAccountItem[];
+}
+
+export interface BatchImportResult {
+  added: number;
+  duplicates: number;
+  accounts: Account[];
 }
 
 export interface ParsedUriData {
@@ -69,11 +91,12 @@ export interface ExportAccountData {
 export interface AuthenticatorAPI {
   listAccounts: () => Promise<Account[]>;
   addAccount: (params: AddAccountParams) => Promise<Account>;
+  addAccountsBatch: (params: AddAccountsBatchParams) => Promise<BatchImportResult>;
   deleteAccount: (id: string) => Promise<boolean>;
   updateAccount: (params: {
     id: string;
-    issuer?: string;
-    account?: string;
+    issuer: string;
+    account: string;
     groupId: string;
   }) => Promise<Account>;
   parseUri: (uri: string) => Promise<ParsedUriData>;
@@ -86,6 +109,7 @@ export interface AuthenticatorAPI {
   reorderGroups: (ids: string[]) => Promise<boolean>;
   reorderAccounts: (ids: string[]) => Promise<boolean>;
   exportAccount: (id: string) => Promise<ExportAccountData>;
+  copyAccountCode: (id: string) => Promise<boolean>;
   copyToClipboard: (text: string) => Promise<boolean> | boolean;
   minimize: () => Promise<void>;
   maximize: () => Promise<boolean>;

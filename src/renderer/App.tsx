@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
+  Alert,
   Button,
   Spinner,
   Avatar,
@@ -21,6 +22,8 @@ import {
   Share,
   Trash2,
   FolderPlus,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { Account, AddAccountParams, Group } from './types';
 import { TitleBar, type AppView } from './components/TitleBar';
@@ -53,10 +56,13 @@ export const App: React.FC = () => {
   const [groups, setGroups] = useState<Group[]>([]);
   const accountsRef = useRef<Account[]>([]);
   accountsRef.current = accounts;
-  const groupsRef = useRef<Group[]>([]);
-  groupsRef.current = groups;
 
   const [loading, setLoading] = useState(true);
+  const [accountsError, setAccountsError] = useState(false);
+  const [groupsError, setGroupsError] = useState(false);
+  const periodicRefresh = useRef(false);
+  const copyResetTimer = useRef<number>();
+  useEffect(() => () => window.clearTimeout(copyResetTimer.current), []);
   const [view, setView] = useState<AppView>('accounts');
   const [filter, setFilter] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -64,7 +70,7 @@ export const App: React.FC = () => {
   const hasGroups = groups.length > 0;
 
   const isDraggingRef = useRef(false);
-  const pendingOrderRef = useRef<Account[] | null>(null);
+  const pendingOrderRef = useRef<string[] | null>(null);
   const pendingGroupOrderRef = useRef<Group[] | null>(null);
 
   const {
@@ -91,31 +97,46 @@ export const App: React.FC = () => {
 
   const fetchAccounts = useCallback(async () => {
     try {
-      if (window.authenticatorAPI) {
-        const list = await window.authenticatorAPI.listAccounts();
+      const list = await window.authenticatorAPI.listAccounts();
+      // Keep an in-progress drag's order, but refresh the underlying account data.
+      const order = pendingOrderRef.current;
+      if (order) {
+        const byId = new Map(list.map((account) => [account.id, account]));
+        const ordered = order.flatMap((id) => {
+          const account = byId.get(id);
+          byId.delete(id);
+          return account ? [account] : [];
+        });
+        setAccounts([...ordered, ...byId.values()]);
+      } else {
         setAccounts(list);
       }
-    } catch (err) {
-      console.error('Failed to fetch accounts:', err);
-    } finally {
-      setLoading(false);
+      setAccountsError(false);
+    } catch {
+      setAccountsError(true);
     }
   }, []);
 
   const fetchGroups = useCallback(async () => {
     try {
-      if (window.authenticatorAPI) {
-        const list = await window.authenticatorAPI.listGroups();
-        setGroups(list);
-      }
-    } catch (err) {
-      console.error('Failed to fetch groups:', err);
+      setGroups(await window.authenticatorAPI.listGroups());
+      setGroupsError(false);
+    } catch {
+      setGroupsError(true);
     }
   }, []);
 
   const refreshAll = useCallback(async () => {
     await Promise.all([fetchAccounts(), fetchGroups()]);
+    setLoading(false);
   }, [fetchAccounts, fetchGroups]);
+
+  const refreshExpiredCodes = useCallback((now: number) => {
+    if (periodicRefresh.current || !accountsRef.current.some((account) =>
+      now >= account.validUntil || now < account.validUntil - account.period)) return;
+    periodicRefresh.current = true;
+    void fetchAccounts().finally(() => { periodicRefresh.current = false; });
+  }, [fetchAccounts]);
 
   // 回到账号列表时重新拉取，避免离开期间的验证码与倒计时过期。
   useEffect(() => {
@@ -127,10 +148,8 @@ export const App: React.FC = () => {
   const selectedGroupId = useMemo(() => {
     if (groups.length === 0) return '';
     if (filter && groups.some((group) => group.id === filter)) return filter;
-    return (
-      groups.find((group) => accounts.some((account) => account.groupId === group.id))?.id ??
-      groups[0].id
-    );
+    const occupied = new Set(accounts.map((account) => account.groupId));
+    return groups.find((group) => occupied.has(group.id))?.id ?? groups[0].id;
   }, [groups, accounts, filter]);
 
   const groupNameById = useMemo(
@@ -146,6 +165,7 @@ export const App: React.FC = () => {
     [accounts, selectedGroupId],
   );
 
+  const visibleIds = useMemo(() => visibleAccounts.map((account) => account.id), [visibleAccounts]);
   const addingIntoGroup = selectedGroupId;
 
   // 没有分组时不打开添加弹窗，直接引导去创建分组。
@@ -158,19 +178,18 @@ export const App: React.FC = () => {
   }, [groups.length, onAddOpen]);
 
   const handleAddAccount = async (params: AddAccountParams) => {
-    if (window.authenticatorAPI) {
-      await window.authenticatorAPI.addAccount(params);
-      await fetchAccounts();
-    }
+    await window.authenticatorAPI.addAccount(params);
   };
 
   const handleDeleteConfirm = async () => {
     if (!accountToDelete) return;
-    if (window.authenticatorAPI) {
+    try {
       await window.authenticatorAPI.deleteAccount(accountToDelete.id);
+      setAccountToDelete(null);
       await fetchAccounts();
+    } catch {
+      addToast({ title: '删除失败，请重试', color: 'danger', timeout: 1_600 });
     }
-    setAccountToDelete(null);
   };
 
   const handleEditAccount = async (params: {
@@ -193,14 +212,15 @@ export const App: React.FC = () => {
     if (isDraggingRef.current) return;
 
     try {
-      if (!await window.authenticatorAPI?.copyToClipboard(account.code)) throw new Error();
+      if (!await window.authenticatorAPI.copyAccountCode(account.id)) throw new Error();
     } catch {
       addToast({ title: '复制失败，请重试', color: 'danger', timeout: 1500 });
       return;
     }
 
     setCopiedId(account.id);
-    setTimeout(() => {
+    window.clearTimeout(copyResetTimer.current);
+    copyResetTimer.current = window.setTimeout(() => {
       setCopiedId((prev) => (prev === account.id ? null : prev));
     }, 1200);
 
@@ -215,29 +235,29 @@ export const App: React.FC = () => {
    * 分组筛选下拖拽时，只重排可见账号：其余账号保持全局位置不变，
    * 再按合并后的全局顺序持久化。
    */
-  const handleReorder = (newOrder: Account[]) => {
-    let merged: Account[];
-    if (!hasGroups) {
-      merged = newOrder;
-    } else {
-      const visibleIds = new Set(newOrder.map((account) => account.id));
-      const queue = [...newOrder];
-      merged = accountsRef.current.map((account) =>
-        visibleIds.has(account.id) ? queue.shift() ?? account : account,
-      );
-    }
-
-    pendingOrderRef.current = merged;
+  const handleReorder = (newOrder: string[]) => {
+    const reorderedIds = new Set(newOrder);
+    let index = 0;
+    const all = accountsRef.current;
+    const byId = new Map(all.map((account) => [account.id, account]));
+    const merged = all.map((account) =>
+      reorderedIds.has(account.id) ? byId.get(newOrder[index++]) ?? account : account,
+    );
+    pendingOrderRef.current = merged.map((account) => account.id);
     setAccounts(merged);
   };
 
-  const handleDragEnd = () => {
-    setTimeout(() => {
-      isDraggingRef.current = false;
-    }, 80);
-    const ids = (pendingOrderRef.current ?? accountsRef.current).map((account) => account.id);
+  const handleDragEnd = async () => {
+    setTimeout(() => { isDraggingRef.current = false; }, 80);
+    const ids = pendingOrderRef.current;
     pendingOrderRef.current = null;
-    window.authenticatorAPI?.reorderAccounts?.(ids);
+    if (!ids) return;
+    try {
+      await window.authenticatorAPI.reorderAccounts(ids);
+    } catch {
+      addToast({ title: '未能保存账号顺序', color: 'danger', timeout: 1_600 });
+      await fetchAccounts();
+    }
   };
 
   const handleReorderGroups = (newOrder: Group[]) => {
@@ -245,10 +265,35 @@ export const App: React.FC = () => {
     setGroups(newOrder);
   };
 
-  const handleGroupDragEnd = () => {
-    const ids = (pendingGroupOrderRef.current ?? groupsRef.current).map((group) => group.id);
+  const handleGroupDragEnd = async () => {
+    const order = pendingGroupOrderRef.current;
     pendingGroupOrderRef.current = null;
-    window.authenticatorAPI?.reorderGroups?.(ids);
+    if (!order) return;
+    try {
+      await window.authenticatorAPI.reorderGroups(order.map((group) => group.id));
+    } catch {
+      addToast({ title: '未能保存分组顺序', color: 'danger', timeout: 1_600 });
+      await fetchGroups();
+    }
+  };
+
+  const handleMoveAccount = async (account: Account, delta: -1 | 1) => {
+    const index = visibleIds.indexOf(account.id);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= visibleIds.length) return;
+
+    const nextVisible = [...visibleIds];
+    [nextVisible[index], nextVisible[target]] = [nextVisible[target], nextVisible[index]];
+    handleReorder(nextVisible);
+    const ids = pendingOrderRef.current;
+    pendingOrderRef.current = null;
+    if (!ids) return;
+    try {
+      await window.authenticatorAPI.reorderAccounts(ids);
+    } catch {
+      addToast({ title: '未能保存账号顺序', color: 'danger', timeout: 1_600 });
+      await fetchAccounts();
+    }
   };
 
   const handleContextMenu = (e: React.MouseEvent, account: Account) => {
@@ -260,6 +305,37 @@ export const App: React.FC = () => {
       y: Math.round(e.clientY),
     });
   };
+
+  const handleKeyboardContextMenu = (rect: DOMRect, account: Account) => {
+    setContextMenu({
+      account,
+      x: Math.round(Math.min(rect.right - 24, window.innerWidth - 140)),
+      y: Math.round(rect.top + rect.height / 2),
+    });
+  };
+
+  const contextAccountIndex = contextMenu ? visibleIds.indexOf(contextMenu.account.id) : -1;
+  const accountMenuDisabledKeys = useMemo(() => {
+    const keys: string[] = [];
+    if (contextAccountIndex <= 0) keys.push('moveUp');
+    if (contextAccountIndex < 0 || contextAccountIndex >= visibleIds.length - 1) keys.push('moveDown');
+    return keys;
+  }, [contextAccountIndex, visibleIds.length]);
+
+  const accountMenuItems = useMemo(() => {
+    const items: Array<{ key: string; label: string; icon: React.ReactNode; isDanger?: boolean }> = [
+      { key: 'export', label: '导出', icon: <Share size={14} /> },
+      { key: 'edit', label: '编辑', icon: <Pencil size={14} /> },
+    ];
+    if (visibleIds.length > 1) {
+      items.push(
+        { key: 'moveUp', label: '上移', icon: <ArrowUp size={14} /> },
+        { key: 'moveDown', label: '下移', icon: <ArrowDown size={14} /> },
+      );
+    }
+    items.push({ key: 'delete', label: '删除', icon: <Trash2 size={14} />, isDanger: true });
+    return items;
+  }, [visibleIds.length]);
 
   const currentGroupName = groupNameById.get(selectedGroupId) ?? '';
 
@@ -275,6 +351,13 @@ export const App: React.FC = () => {
         onBack={() => setView('accounts')}
       />
 
+      {(accountsError || groupsError) && (
+        <Alert className="mx-3 mt-2 w-auto shrink-0" color="danger" variant="flat"
+          title={accountsError && groupsError ? '无法读取账号和分组' : accountsError ? '无法读取账号' : '无法读取分组'}
+          endContent={<Button size="sm" variant="flat" onPress={refreshAll}>重试</Button>}
+        />
+      )}
+
       {view === 'groups' ? (
         <GroupManagementPage
           groups={groups}
@@ -288,7 +371,7 @@ export const App: React.FC = () => {
         />
       ) : (
         <>
-          <TotpProgress onPeriodChange={fetchAccounts} />
+          <TotpProgress onTick={refreshExpiredCodes} />
 
           {hasGroups && (
             <GroupFilterBar
@@ -308,14 +391,14 @@ export const App: React.FC = () => {
             ) : visibleAccounts.length > 0 ? (
               <Reorder.Group
                 axis="y"
-                values={visibleAccounts}
+                values={visibleIds}
                 onReorder={handleReorder}
                 className="flex flex-col gap-2.5 list-none m-0 p-0"
               >
                 {visibleAccounts.map((account) => (
                   <Reorder.Item
                     key={account.id}
-                    value={account}
+                    value={account.id}
                     layout="position"
                     dragMomentum={false}
                     dragTransition={DROP_TRANSITION}
@@ -335,11 +418,13 @@ export const App: React.FC = () => {
                       isCopied={copiedId === account.id}
                       onCopy={handleCopyAccount}
                       onContextMenu={handleContextMenu}
+                      onKeyboardContextMenu={handleKeyboardContextMenu}
+                      onMove={(item, delta) => void handleMoveAccount(item, delta)}
                     />
                   </Reorder.Item>
                 ))}
               </Reorder.Group>
-            ) : !hasGroups ? (
+            ) : accountsError || groupsError ? null : !hasGroups ? (
               <Card
                 shadow="sm"
                 className="my-16 mx-auto max-w-[230px] text-center border border-default-200 bg-content1"
@@ -424,6 +509,8 @@ export const App: React.FC = () => {
             </DropdownTrigger>
             <DropdownMenu
               aria-label="账号操作"
+              items={accountMenuItems}
+              disabledKeys={accountMenuDisabledKeys}
               onAction={(key) => {
                 const target = contextMenu?.account;
                 setContextMenu(null);
@@ -432,25 +519,25 @@ export const App: React.FC = () => {
                   setExportingAccountId(target.id);
                 } else if (key === 'edit') {
                   setEditingAccount(target);
+                } else if (key === 'moveUp') {
+                  void handleMoveAccount(target, -1);
+                } else if (key === 'moveDown') {
+                  void handleMoveAccount(target, 1);
                 } else if (key === 'delete') {
                   setAccountToDelete(target);
                 }
               }}
             >
-              <DropdownItem key="export" startContent={<Share size={14} />}>
-                导出
-              </DropdownItem>
-              <DropdownItem key="edit" startContent={<Pencil size={14} />}>
-                编辑
-              </DropdownItem>
-              <DropdownItem
-                key="delete"
-                color="danger"
-                className="text-danger"
-                startContent={<Trash2 size={14} />}
-              >
-                删除
-              </DropdownItem>
+              {(item) => (
+                <DropdownItem
+                  key={item.key}
+                  color={item.isDanger ? 'danger' : 'default'}
+                  className={item.isDanger ? 'text-danger' : undefined}
+                  startContent={item.icon}
+                >
+                  {item.label}
+                </DropdownItem>
+              )}
             </DropdownMenu>
           </Dropdown>
 
@@ -461,6 +548,7 @@ export const App: React.FC = () => {
             defaultGroupId={addingIntoGroup}
             onClose={onAddClose}
             onAdd={handleAddAccount}
+            onAdded={fetchAccounts}
           />
 
           <ExportAccountModal

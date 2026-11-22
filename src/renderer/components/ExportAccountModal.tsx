@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+  Alert,
   Modal,
   ModalContent,
   ModalHeader,
@@ -15,7 +16,6 @@ import {
   addToast,
 } from '@heroui/react';
 import { QrCode, Link, Key, Copy, Download, Check } from 'lucide-react';
-import QRCode from 'qrcode';
 import { ExportAccountData } from '../types';
 
 interface ExportAccountModalProps {
@@ -30,7 +30,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<string>('qr');
-  const [result, setResult] = useState<{ id: string; data: ExportAccountData; qr: string } | null>(null);
+  const [result, setResult] = useState<{ id: string; data?: ExportAccountData; qr?: string; qrFailed?: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
   const current = isOpen && result?.id === accountId ? result : null;
   const exportData = current?.data;
@@ -42,20 +42,32 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
     if (!isOpen || !accountId) return;
 
     let cancelled = false;
-    window.authenticatorAPI?.exportAccount(accountId)
-      .then(async (data) => {
+    async function load(id: string) {
+      let data: ExportAccountData;
+      try {
+        data = await window.authenticatorAPI.exportAccount(id);
+      } catch {
+        if (!cancelled) setResult({ id });
+        return;
+      }
+      if (cancelled) return;
+      setResult({ id, data });
+      try {
+        const { default: QRCode } = await import('qrcode');
         if (cancelled) return;
-        const url = await QRCode.toDataURL(data.uri, {
+        const qr = await QRCode.toDataURL(data.uri, {
           width: 480,
           margin: 1,
           errorCorrectionLevel: 'M',
           color: { dark: '#11181c', light: '#ffffff' },
         });
-        if (!cancelled) setResult({ id: accountId, data, qr: url });
-      })
-      .catch(() => {
-        if (!cancelled) addToast({ title: '导出失败，请重试', color: 'danger', timeout: 1500 });
-      });
+        if (!cancelled) setResult({ id, data, qr });
+      } catch {
+        // A link can exceed QR capacity; text and Base32 remain usable.
+        if (!cancelled) setResult({ id, data, qrFailed: true });
+      }
+    }
+    void load(accountId);
     return () => { cancelled = true; };
   }, [isOpen, accountId]);
 
@@ -128,7 +140,9 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
             </ModalHeader>
 
             <ModalBody className="py-2 flex flex-col gap-3">
-              {!exportData ? (
+              {current && !exportData ? (
+                <Alert color="danger" variant="flat" title="无法导出账号，请关闭后重试。" />
+              ) : !exportData ? (
                 <div className="flex items-center justify-center h-44">
                   <Spinner size="md" color="primary" />
                 </div>
@@ -173,6 +187,10 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
 
                   {activeTab === 'qr' && (
                     <div className="flex flex-col items-center gap-3 py-2">
+                      {current?.qrFailed && (
+                        <Alert color="warning" variant="flat" title="无法生成二维码，请使用链接或 Base32 密钥。" />
+                      )}
+                      {!qrDataUrl && !current?.qrFailed && <Spinner size="sm" />}
                       {qrDataUrl && (
                         <Image
                           src={qrDataUrl}
@@ -188,6 +206,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
                         color="primary"
                         variant="flat"
                         startContent={<Download size={14} />}
+                        isDisabled={!qrDataUrl}
                         onPress={handleDownloadQr}
                       >
                         保存图片

@@ -7,8 +7,10 @@ namespace AuthenticatorBackend;
 
 internal static class VaultFile
 {
-    // A versioned, non-JSON envelope. Never treat a failed decryption as an empty vault.
-    private static ReadOnlySpan<byte> Header => "KLIPY-DPAPI-1\n"u8;
+    // Versioned, non-JSON envelopes. Never treat a failed decryption or unknown version as an empty vault.
+    private static ReadOnlySpan<byte> Prefix => "KLIPY-DPAPI-"u8;
+    private static ReadOnlySpan<byte> HeaderV1 => "KLIPY-DPAPI-1\n"u8;
+    private static ReadOnlySpan<byte> HeaderV2 => "KLIPY-DPAPI-2\n"u8;
     private const int MaxFileSize = 64 * 1024 * 1024;
 
     public static byte[]? Read(string path)
@@ -25,61 +27,164 @@ internal static class VaultFile
         }
     }
 
-    public static List<AccountRecord> LoadAccounts(string path)
+    /// <summary>
+    /// 加载统一保险库（KLIPY-DPAPI-2）；若仍是旧版双文件（KLIPY-DPAPI-1 或明文 JSON + groups.json），
+    /// 返回合并后的内存数据并标记 NeedsMigration = true，由调用方以单次原子替换升级为 KLIPY-DPAPI-2。
+    /// </summary>
+    public static (List<GroupRecord> Groups, List<AccountRecord> Accounts, bool NeedsMigration) LoadVault(
+        string vaultPath,
+        string legacyGroupsPath)
     {
-        var file = Read(path);
-        if (file is null) return [];
+        var vaultBytes = Read(vaultPath);
+        if (vaultBytes is null)
+        {
+            var legacyGroups = ReadLegacyGroups(legacyGroupsPath);
+            if (legacyGroups is null)
+            {
+                return (new List<GroupRecord>(), new List<AccountRecord>(), false);
+            }
+            return (legacyGroups, new List<AccountRecord>(), true);
+        }
+
         byte[]? decrypted = null;
         try
         {
-            bool encrypted = file.AsSpan().StartsWith(Header);
-            if (encrypted) decrypted = Dpapi(file.AsSpan(Header.Length), protect: false);
-            // Windows PowerShell and older tooling can leave a UTF-8 BOM in legacy JSON.
-            ReadOnlySpan<byte> json = decrypted ?? file;
-            if (json.StartsWith(new byte[] { 0xef, 0xbb, 0xbf })) json = json[3..];
-            var accounts = JsonSerializer.Deserialize<List<AccountRecord>>(json) ?? throw new InvalidDataException();
-            var ids = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var account in accounts)
+            if (vaultBytes.AsSpan().StartsWith(HeaderV2))
             {
-                if (account is null || string.IsNullOrWhiteSpace(account.Id) || !ids.Add(account.Id) ||
-                    account.Issuer is null || account.Account is null || account.Algorithm is null ||
-                    account.Period <= 0 || account.Digits is not (6 or 8)) throw new InvalidDataException();
-                var key = TotpEngine.DecodeBase32(account.Secret);
-                if (key.Length == 0) throw new InvalidDataException();
-                CryptographicOperations.ZeroMemory(key);
+                decrypted = Dpapi(vaultBytes.AsSpan(HeaderV2.Length), protect: false);
+                var snapshot = JsonSerializer.Deserialize<VaultSnapshot>(StripUtf8Bom(decrypted))
+                    ?? throw new InvalidDataException();
+                if (snapshot.Groups is null || snapshot.Accounts is null)
+                    throw new InvalidDataException();
+                ValidateGroups(snapshot.Groups);
+                ValidateAccounts(snapshot.Accounts);
+                return (snapshot.Groups, snapshot.Accounts, false);
             }
-            if (!encrypted) SaveAccounts(path, accounts);
-            return accounts;
+
+            List<AccountRecord> accounts;
+            if (vaultBytes.AsSpan().StartsWith(HeaderV1))
+            {
+                decrypted = Dpapi(vaultBytes.AsSpan(HeaderV1.Length), protect: false);
+                accounts = ParseAndValidateAccounts(StripUtf8Bom(decrypted));
+            }
+            else if (vaultBytes.AsSpan().StartsWith(Prefix))
+            {
+                // Unknown future vault version; refuse to open so we never corrupt or wipe newer data.
+                throw new InvalidDataException("不支持的数据文件版本。");
+            }
+            else
+            {
+                accounts = ParseAndValidateAccounts(StripUtf8Bom(vaultBytes));
+            }
+
+            var groups = ReadLegacyGroups(legacyGroupsPath) ?? new List<GroupRecord>();
+            return (groups, accounts, true);
         }
         finally
         {
-            CryptographicOperations.ZeroMemory(file);
+            CryptographicOperations.ZeroMemory(vaultBytes);
             if (decrypted is not null) CryptographicOperations.ZeroMemory(decrypted);
         }
     }
 
-    public static void SaveAccounts(string path, List<AccountRecord> accounts)
+    public static void SaveVault(string path, List<GroupRecord> groups, List<AccountRecord> accounts)
     {
-        var json = JsonSerializer.SerializeToUtf8Bytes(accounts);
+        var json = JsonSerializer.SerializeToUtf8Bytes(new VaultSnapshot
+        {
+            Groups = groups,
+            Accounts = accounts
+        });
+        byte[]? encrypted = null;
+        byte[]? file = null;
         try
         {
-            var encrypted = Dpapi(json, protect: true);
-            var file = new byte[Header.Length + encrypted.Length];
-            Header.CopyTo(file);
-            encrypted.CopyTo(file, Header.Length);
+            encrypted = Dpapi(json, protect: true);
+            file = new byte[HeaderV2.Length + encrypted.Length];
+            HeaderV2.CopyTo(file);
+            encrypted.CopyTo(file, HeaderV2.Length);
             WriteAtomic(path, file, temporary =>
             {
                 var onDisk = Read(temporary) ?? throw new IOException();
-                if (!onDisk.AsSpan().StartsWith(Header)) throw new IOException();
-                var check = Dpapi(onDisk.AsSpan(Header.Length), protect: false);
                 try
                 {
-                    if (!CryptographicOperations.FixedTimeEquals(json, check)) throw new IOException();
+                    if (!onDisk.AsSpan().StartsWith(HeaderV2)) throw new IOException();
+                    var check = Dpapi(onDisk.AsSpan(HeaderV2.Length), protect: false);
+                    try
+                    {
+                        if (!CryptographicOperations.FixedTimeEquals(json, check)) throw new IOException();
+                    }
+                    finally { CryptographicOperations.ZeroMemory(check); }
                 }
-                finally { CryptographicOperations.ZeroMemory(check); }
+                finally { CryptographicOperations.ZeroMemory(onDisk); }
             });
         }
-        finally { CryptographicOperations.ZeroMemory(json); }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(json);
+            if (encrypted is not null) CryptographicOperations.ZeroMemory(encrypted);
+            if (file is not null) CryptographicOperations.ZeroMemory(file);
+        }
+    }
+
+    public static void DeleteLegacyFileQuietly(string path)
+    {
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    private static List<GroupRecord>? ReadLegacyGroups(string path)
+    {
+        var file = Read(path);
+        if (file is null) return null;
+        var groups = JsonSerializer.Deserialize<List<GroupRecord>>(StripUtf8Bom(file))
+            ?? throw new InvalidDataException();
+        ValidateGroups(groups);
+        return groups;
+    }
+
+    private static ReadOnlySpan<byte> StripUtf8Bom(ReadOnlySpan<byte> bytes)
+    {
+        // Windows PowerShell and older tooling can leave a UTF-8 BOM in legacy JSON.
+        return bytes.StartsWith(new byte[] { 0xef, 0xbb, 0xbf }) ? bytes[3..] : bytes;
+    }
+
+    private static List<AccountRecord> ParseAndValidateAccounts(ReadOnlySpan<byte> json)
+    {
+        var accounts = JsonSerializer.Deserialize<List<AccountRecord>>(json) ?? throw new InvalidDataException();
+        ValidateAccounts(accounts);
+        return accounts;
+    }
+
+    private static void ValidateGroups(List<GroupRecord> groups)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var group in groups)
+        {
+            if (group is null || string.IsNullOrWhiteSpace(group.Id) ||
+                string.IsNullOrWhiteSpace(group.Name) || !ids.Add(group.Id))
+            {
+                throw new InvalidDataException();
+            }
+        }
+    }
+
+    private static void ValidateAccounts(List<AccountRecord> accounts)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var account in accounts)
+        {
+            if (account is null || string.IsNullOrWhiteSpace(account.Id) || !ids.Add(account.Id) ||
+                account.Issuer is null || account.Account is null || account.Algorithm is null ||
+                account.Period <= 0 || account.Digits is not (6 or 8))
+            {
+                throw new InvalidDataException();
+            }
+            TotpEngine.ValidateSecret(account.Secret);
+        }
     }
 
     public static void WriteAtomic(string path, byte[] bytes, Action<string>? verify = null)

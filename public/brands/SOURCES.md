@@ -21,6 +21,6 @@
 
 ## 匹配规则
 
-- 见 [`src/renderer/brandIcons.ts`](../src/renderer/brandIcons.ts)：先按「服务名称（issuer）」、再按「账号」在顺序正则表中匹配；都没有命中时回退到名称缩写。
+- 见 [`src/renderer/brandIcons.ts`](../../src/renderer/brandIcons.ts)：先按「服务名称（issuer）」、再按「账号」在顺序正则表中匹配；都没有命中时回退到名称缩写。
 - 例如导入的迁移链接常出现 `issuer = 未命名, account = Muse`，此时会用账号字段命中 Muse 图标。
 - 新增品牌：把 `<slug>.svg` 放进 `public/brands/si/`，并在 `brandIcons.ts` 的顺序表中补一条规则即可。

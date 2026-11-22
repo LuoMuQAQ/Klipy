@@ -15,15 +15,16 @@ const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'; // RFC test vector only
 const account = { id: 'legacy-id', issuer: 'GitHub', account: 'fixture@example.com', secret,
   digits: 6, period: 30, algorithm: 'SHA1', groupId: 'test-group', createdAt: 42 };
 const group = { id: account.groupId, name: 'Fixture', createdAt: 41 };
-const prefix = Buffer.from('KLIPY-DPAPI-1\n');
+const prefixV2 = Buffer.from('KLIPY-DPAPI-2\n');
 
-function fixture(t, initial = JSON.stringify([account])) {
+function fixture(t, initial = JSON.stringify([account]), initialGroups = JSON.stringify([group])) {
   const data = mkdtempSync(path.join(os.tmpdir(), 'klipy-security-'));
   const vault = path.join(data, 'accounts.json');
+  const groupsFile = path.join(data, 'groups.json');
   t.after(() => rmSync(data, { recursive: true, force: true }));
   if (initial !== null) writeFileSync(vault, initial);
-  writeFileSync(path.join(data, 'groups.json'), JSON.stringify([group]));
-  return { data, vault, env: { ...process.env, AUTHENTICATOR_DATA_DIR: data } };
+  if (initialGroups !== null) writeFileSync(groupsFile, initialGroups);
+  return { data, vault, groupsFile, env: { ...process.env, AUTHENTICATOR_DATA_DIR: data } };
 }
 
 function run(fixture, commands) {
@@ -32,6 +33,16 @@ function run(fixture, commands) {
   if (result.error) throw result.error;
   assert.equal(result.stderr, '');
   return { status: result.status, responses: result.stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) };
+}
+
+function dpapiProtectV1(jsonText) {
+  const b64 = Buffer.from(jsonText, 'utf8').toString('base64');
+  const ps = `Add-Type -AssemblyName System.Security; $b=[Convert]::FromBase64String('${b64}'); ` +
+    `$enc=[System.Security.Cryptography.ProtectedData]::Protect($b,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser); ` +
+    `[Console]::Out.Write([Convert]::ToBase64String($enc))`;
+  const res = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8', windowsHide: true });
+  assert.equal(res.status, 0, res.stderr);
+  return Buffer.concat([Buffer.from('KLIPY-DPAPI-1\n'), Buffer.from(res.stdout.trim(), 'base64')]);
 }
 
 function vector(time) {
@@ -43,7 +54,7 @@ function vector(time) {
 }
 
 const windowsOnly = { skip: process.platform !== 'win32' };
-test('legacy vault migrates in place with identical account, TOTP, and grouping', windowsOnly, (t) => {
+test('legacy plaintext vault and groups.json migrate into single KLIPY-DPAPI-2 vault', windowsOnly, (t) => {
   const f = fixture(t, '\uFEFF' + JSON.stringify([account]));
   const before = Math.floor(Date.now() / 1000);
   const { status, responses: [list, exported, groups] } = run(f, [['list'], ['export', { id: account.id }], ['grouplist']]);
@@ -58,23 +69,51 @@ test('legacy vault migrates in place with identical account, TOTP, and grouping'
   assert.equal('secret' in list.data[0], false);
   assert.equal(exported.data.secret, secret);
   const ciphertext = readFileSync(f.vault);
-  assert(ciphertext.subarray(0, prefix.length).equals(prefix));
+  assert(ciphertext.subarray(0, prefixV2.length).equals(prefixV2));
   assert(!ciphertext.includes(secret));
   assert(!ciphertext.includes(account.account));
-  assert.deepEqual(readdirSync(f.data).sort(), ['.klipy.lock', 'accounts.json', 'groups.json']);
+  assert(!ciphertext.includes(group.name));
+  assert.deepEqual(readdirSync(f.data).sort(), ['.klipy.lock', 'accounts.json']);
   const again = run(f, [['export', { id: account.id }]]);
-  assert.deepEqual(again.responses, [ { ...exported, id: '0' } ]);
+  assert.deepEqual(again.responses, [{ ...exported, id: '0' }]);
   assert.deepEqual(readFileSync(f.vault), ciphertext);
 });
 
+test('KLIPY-DPAPI-1 vault + groups.json upgrades cleanly to KLIPY-DPAPI-2 and ignores stale groups.json afterwards', windowsOnly, (t) => {
+  const f = fixture(t, dpapiProtectV1(JSON.stringify([account])), JSON.stringify([group]));
+  const { status, responses: [list, groups] } = run(f, [['list'], ['grouplist']]);
+  assert.equal(status, 0);
+  assert(list.success && groups.success);
+  assert.equal(list.data.length, 1);
+  assert.equal(list.data[0].id, account.id);
+  assert.deepEqual(groups.data, [group]);
+  const v2Bytes = readFileSync(f.vault);
+  assert(v2Bytes.subarray(0, prefixV2.length).equals(prefixV2));
+  assert.deepEqual(readdirSync(f.data).sort(), ['.klipy.lock', 'accounts.json']);
+
+  // Simulate interrupted migration: stale groups.json left beside valid KLIPY-DPAPI-2 vault
+  writeFileSync(f.groupsFile, JSON.stringify([{ id: 'stale', name: 'StaleGroup', createdAt: 1 }]));
+  const afterStale = run(f, [['grouplist'], ['list']]);
+  assert.equal(afterStale.status, 0);
+  assert.deepEqual(afterStale.responses[0].data, [group]);
+  assert.equal(afterStale.responses[1].data.length, 1);
+  assert.deepEqual(readdirSync(f.data).sort(), ['.klipy.lock', 'accounts.json']);
+  assert.deepEqual(readFileSync(f.vault), v2Bytes);
+});
+
 test('corruption and incomplete migrations cannot turn into an empty writable vault', windowsOnly, (t) => {
-  for (const initial of ['[{"secret":', '[null]', 'null', 'KLIPY-DPAPI-2\nbad', 'KLIPY-DPAPI-1\ntruncated']) {
+  for (const initial of ['[{"secret":', '[null]', 'null', 'KLIPY-DPAPI-2\nbad', 'KLIPY-DPAPI-3\nbad', 'KLIPY-DPAPI-1\ntruncated']) {
     const f = fixture(t, initial);
     assert.deepEqual(run(f, [['list'], ['add', account]]), { status: 20, responses: [] });
     assert.equal(readFileSync(f.vault, 'utf8'), initial);
   }
+  // Corrupt legacy groups.json must also refuse startup without wiping either file
+  const corruptGroups = fixture(t, JSON.stringify([account]), '[{"id":');
+  assert.deepEqual(run(corruptGroups, [['list']]), { status: 20, responses: [] });
+  assert.equal(readFileSync(corruptGroups.groupsFile, 'utf8'), '[{"id":');
+
   const f = fixture(t);
-  writeFileSync(f.vault + '.interrupted.tmp', Buffer.concat([prefix, Buffer.from('uncommitted')]));
+  writeFileSync(f.vault + '.interrupted.tmp', Buffer.concat([prefixV2, Buffer.from('uncommitted')]));
   assert(run(f, [['list']]).responses[0].success);
   const good = readFileSync(f.vault);
   good[good.length - 1] ^= 1;
@@ -83,7 +122,7 @@ test('corruption and incomplete migrations cannot turn into an empty writable va
   assert.deepEqual(readFileSync(f.vault), good);
 });
 
-test('fresh vault, CRUD, reorder, and export persist only encrypted accounts', windowsOnly, (t) => {
+test('fresh vault, CRUD, reorder, and export persist only encrypted unified vault', windowsOnly, (t) => {
   const f = fixture(t, null);
   const { responses: [first, second] } = run(f, [['add', account], ['add', { ...account, account: 'second' }]]);
   assert(first.success && second.success);
@@ -117,8 +156,13 @@ test('second backend cannot open the same data directory', windowsOnly, async (t
 });
 
 test('IPC schemas bound sizes without admitting extra arguments', () => {
-  const { id, createdAt, ...validAdd } = account;
+  const { id, createdAt, groupId, ...validItem } = account;
+  const validAdd = { ...validItem, groupId };
   assert.doesNotThrow(() => validate('add', validAdd));
+  assert.doesNotThrow(() => validate('addBatch', { groupId, accounts: [validItem] }));
+  assert.throws(() => validate('addBatch', { groupId, accounts: [] }));
+  assert.throws(() => validate('addBatch', { groupId, accounts: [{ ...validItem, extra: 1 }] }));
+  assert.throws(() => validate('addBatch', { groupId, accounts: Array(501).fill(validItem) }));
   assert.doesNotThrow(() => validate('list'));
   assert.throws(() => validate('list', {}));
   assert.throws(() => validate('export', { id: [] }));

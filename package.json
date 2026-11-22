@@ -1,6 +1,6 @@
 {
   "name": "klipy",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Klipy - Windows 轻量级 2FA / TOTP 身份验证器 (HeroUI + Electron + C#)",
   "author": "LuoMuQAQ",
   "scripts": {
@@ -13,18 +13,18 @@
     "start": "electron .",
     "test:security": "node --test tests/security.test.cjs",
     "test:desktop": "electron tests/electron-smoke.cjs",
-    "dev:electron": "wait-on http-get://127.0.0.1:5173 && cross-env AUTHENTICATOR_DEV_URL=http://127.0.0.1:5173/ electron ."
+    "dev:electron": "wait-on http-get://127.0.0.1:5173 && cross-env AUTHENTICATOR_DEV_URL=http://127.0.0.1:5173/ electron .",
+    "typecheck": "tsc --noEmit",
+    "test:backend": "node --test tests/backend.test.cjs"
   },
   "dependencies": {
     "@heroui/react": "^2.8.10",
-    "clsx": "^2.1.1",
     "framer-motion": "^11.18.2",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.475.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.6.0"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.13.1",
