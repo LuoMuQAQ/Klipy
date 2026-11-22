@@ -4,7 +4,7 @@
 **当前版本**：`1.0.1`
 **技术栈**：Electron 45.4.1 + React 18 + TypeScript + HeroUI (`@heroui/react` 2.8.10) + Tailwind CSS 3 + Framer Motion 11 + C# (.NET 10)
 **文档日期**：2026-11-20  
-**最近更新**：2026-11-20（安全加固及 Windows x64 安装包）
+**最近更新**：2026-11-22（复制提示改为标题栏下方的紧凑浮层）
 **当前状态**：可运行；`dist/` 与 `bin/backend/` 已按最新代码重新构建并通过验证。  
 
 > ⚠️ **不要清空 `%APPDATA%\WindowsAuthenticatorDemo`**：其中已是用户的真实数据（9 个账号，均在 `Google` 分组）。需要测试时请设置 `AUTHENTICATOR_DATA_DIR` 指向临时目录。
@@ -25,7 +25,7 @@
   - 顶部 `<TotpProgress>` 使用 Web Animations API 线性缩放，与系统时间对齐，不再每 100 ms 重渲染主列表。剩余 10 秒变黄、5 秒变红，30 秒周期切换时自动向后端拉取新验证码。
   - 账号数据持久化在 `%APPDATA%\WindowsAuthenticatorDemo\accounts.json`；首次启动为空账号库，界面引导先创建分组（不再预置演示账号）。
 - **卡片交互与排序**：
-  - 取消独立复制与删除按钮，**左键单击卡片**通过主进程代理到 C# 后端的 Windows 剪贴板接口复制验证码，并弹出 HeroUI `<Toast>` 提示。
+  - 取消独立复制与删除按钮，**左键单击卡片**通过主进程代理到 C# 后端的 Windows 剪贴板接口复制验证码，并弹出 HeroUI `<Toast>` 提示（已改为标题栏下方的紧凑浮层，见第 15 节）。
   - **左键按住卡片上下拖拽**可实时调整排序（基于 `framer-motion` `<Reorder.Group>` / `<Reorder.Item>`），松手后平滑归位，并调用后端 `reorder` 持久化顺序，不误触发复制。
   - **右键点击卡片**弹出 HeroUI `<Dropdown>` 上下文菜单，可导出、编辑或删除账号。菜单锚定点击坐标，不做缩放，避免卡片尚未归位时菜单文字移动。
   - **账号头像**：内置 85 个常见品牌图标（`public/brands/si/<slug>.svg`，24×24 path + 官方品牌色），匹配时先看服务名称（issuer）、再看账号字段，因此「未命名 / Muse」这类迁移账号也能拿到图标；未识别服务或图片加载失败时使用名称缩写。素材出处见 [`public/brands/SOURCES.md`](public/brands/SOURCES.md)。
@@ -215,6 +215,11 @@
    - `resolveBrand(issuer, account)` 先匹配服务名称、再匹配账号字段，因此迁移链接里常见的 `issuer = 未命名, account = Muse` 也能命中；账号是邮箱时会落到 Gmail / Outlook 等品牌。
    - 新增品牌：放 `<slug>.svg` 到 `public/brands/si/`，再在 `src/renderer/brandIcons.ts` 的顺序表补一条规则即可；未命中时卡片回退到名称缩写。
 
+9. **提示浮层（Toast）的尺寸与位置**
+   - 配置在 `src/renderer/main.tsx` 的 `compactToastProps`：默认 HeroUI Toast 是 `w-full`，在 400px 窗口里会左右占满一整行，所以必须用 `w-fit` + `max-w-[300px]` 收窄宽度，再用 `mx-auto` 居中；`my-0` 让 `toastOffset` 与实际位置一致。
+   - `placement="top-center"` + `toastOffset={52}`（标题栏 `2.75rem ≈ 44.7px` + 7px 间距），提示浮在内容区顶部、正好落在分组筛选条那一带上，不进入标题栏、也不压到账号卡片（实测 `y=52..101.3`，第一张卡片从 `104.7` 开始）。**改标题栏高度后要同步这个 52。**
+   - 不要恢复 `w-full`/`w-screen`，也不要把 `toastOffset` 调到 44 以下——两者都会重新引发“盖住一整行 / 钻进标题栏”的问题。
+
 ---
 
 ## 6. 已知局限与后续演进建议
@@ -326,3 +331,18 @@
 - 打包配置：`electron-builder.json`，Klipy 的安装标识为 `io.github.luomuqaq.klipy`，升级时不要变更；公开产物是 `release/Klipy-Setup-<版本>-x64.exe` 及 SHA-256 校验文件。
 - 打包时只收录 `dist` 前端资源、`src/main` 运行文件和发布后的自包含 C# 后端。后端放在 `resources/backend`，不在 ASAR 内。安装包不包含工作区、开发依赖、用户数据或导出文件。
 - 更新时关闭应用，运行新版 Setup；NSIS 复用首次安装目录并替换程序文件，账号库和分组不随安装更新或卸载被删除。测试环境可运行 `node tests/setup-smoke.cjs release/win-unpacked/Klipy.exe`；提供两个不同版本的 Setup 路径时会执行安装、覆盖更新、卸载的临时测试，拒绝在已有 Klipy 安装的用户环境中做该测试。
+
+## 15. 复制提示改为标题栏下方的紧凑浮层（2026-11-22）
+
+- **问题**：单击卡片复制后弹出的 HeroUI Toast 用默认样式（`w-full`、`p-3`、24px 图标、`bottom-center`），在 400px 宽的窗口里几乎占满整宽、高约 56px，正好盖住一整行账号卡片。
+- **改法**（`src/renderer/main.tsx` 的 `compactToastProps`）：
+  - `placement="top-center"` + `toastOffset={52}`：浮在内容区顶部、标题栏 `2.75rem ≈ 44.7px` 正下方 7px 处，不进入标题栏；`y=52`、高 49.3，底边 101.3 仍在第一张卡片（104.7）之上。
+  - 宽度用 `w-fit` + `max-w-[300px]` + `mx-auto` 收窄并居中：实测 `已复制 GitHub 验证码` 为 **195.7 × 49.3**、`已复制 Microsoft 验证码` 为 **211.8 × 49.3**，都不足半行宽（窗口 400），不再占满整行；文案上限 300px（`已删除分组，N 个账号一并删除` 这类长文案也能完整显示）。
+  - 保留默认 24px 图标与 `p-3` 内边距，`radius="lg"`、`shadow="md"`、`hideCloseButton`，标题 `text-[13px] leading-5`，整体就是常规提示卡片的外观。
+  - `ToastProvider` 仍挂在 `main.tsx` 根级（位置与页面无关，不需要拿到 `view`）。
+- **涉及文件**：[`main.tsx`](src/renderer/main.tsx)（唯一改动文件；`App.tsx` 已还原为原状）。
+- **验证**：
+  - `npx tsc --noEmit`、`npm run build:vite` 退出码 `0`。
+  - `npm run test:security` 6/6 通过；`electron tests/electron-smoke.cjs` PASS（剪贴板被占用，未写入）。
+  - Electron 实测（临时 `AUTHENTICATOR_DATA_DIR`，复制 IPC 替换为空实现，不碰真实剪贴板）：两例宽度分别为 195.7 / 211.8，中心均在 `x=200.0`（窗口正中），`y=52`，高度 49.3，图标 1 个；`y+h=101.3 < firstCardTop=104.7`，底部不压卡片。
+- **取舍**：浮层与分组筛选条在同一横带上，弹出时会盖住筛选胶囊 1.5 秒（不上移贴标题栏、不下移压卡片，中间只有这一条 20px 的缝，塞不下 49px 的卡片）。这是尺寸与位置之间的固定取舍；若以后想完全不遮挡，只能在列表顶部预留一条提示位。
