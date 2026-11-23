@@ -5,7 +5,8 @@ import {
   User,
 } from '@heroui/react';
 import { Account } from '../types';
-import { brandIconUrl, resolveBrand } from '../brandIcons';
+import { t } from '../i18n';
+import { resolveAccountIcon } from '../utils/accountIcon';
 
 interface AccountCardProps {
   account: Account;
@@ -43,7 +44,7 @@ const CustomPeriodCountdown: React.FC<{ period: number }> = ({ period }) => {
   return (
     <span
       data-slot="custom-period"
-      aria-label={`周期 ${period} 秒，剩余 ${remaining} 秒`}
+      aria-label={t('customPeriodAria', { period, remaining })}
       className={`text-[10px] leading-none font-medium tabular-nums ${colorClass}`}
     >
       {remaining}s / {period}s
@@ -66,7 +67,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
       ? `${account.code.slice(0, 4)} ${account.code.slice(4)}`
       : account.code;
 
-  const brand = resolveBrand(account.issuer, account.account);
+  const brand = resolveAccountIcon(account.icon, account.issuer, account.account);
   const initials = account.issuer.trim().slice(0, 2).toUpperCase() || '2F';
   const hasCustomPeriod = account.period !== 30;
 
@@ -101,7 +102,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
           avatarProps={{
             name: initials,
             getInitials: () => initials,
-            src: brand ? brandIconUrl(brand.slug) : undefined,
+            src: brand?.src,
             size: 'sm',
             showFallback: true,
             disableAnimation: true,
@@ -110,7 +111,12 @@ export const AccountCard: React.FC<AccountCardProps> = ({
             className: `w-9 h-9 text-[11px] font-semibold flex-shrink-0${
               brand ? ' border border-default-200 bg-white' : ''
             }`,
-            classNames: { img: 'object-contain p-1.5 pointer-events-none' },
+            classNames: {
+              img:
+                brand?.kind === 'custom'
+                  ? 'object-cover pointer-events-none'
+                  : 'object-contain p-1.5 pointer-events-none',
+            },
           }}
           classNames={{
             base: 'min-w-0 flex-1 justify-start',

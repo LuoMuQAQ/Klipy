@@ -183,6 +183,11 @@ internal static class VaultFile
             {
                 throw new InvalidDataException();
             }
+            account.Icon = AccountIcon.Normalize(account.Icon);
+            if (!AccountIcon.IsValid(account.Icon))
+            {
+                throw new InvalidDataException();
+            }
             TotpEngine.ValidateSecret(account.Secret);
         }
     }

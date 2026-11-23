@@ -17,6 +17,7 @@ import {
 } from '@heroui/react';
 import { QrCode, Link, Key, Copy, Download, Check } from 'lucide-react';
 import { ExportAccountData } from '../types';
+import { t } from '../i18n';
 
 interface ExportAccountModalProps {
   accountId: string | null;
@@ -80,10 +81,10 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
   const handleCopyText = async (text: string, label: string) => {
     try {
       if (!await window.authenticatorAPI?.copyToClipboard(text)) throw new Error();
-      addToast({ title: `已复制${label}`, color: 'success', timeout: 1500 });
+      addToast({ title: t('copiedLabel', { label }), color: 'success', timeout: 1500 });
       return true;
     } catch {
-      addToast({ title: '复制失败，请重试', color: 'danger', timeout: 1500 });
+      addToast({ title: t('copyFailed'), color: 'danger', timeout: 1500 });
       return false;
     }
   };
@@ -95,12 +96,12 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
     if (!exportData) return;
     if (activeTab === 'uri' && target instanceof HTMLTextAreaElement && target.selectionStart !== target.selectionEnd) {
       event.preventDefault();
-      void handleCopyText(target.value.slice(target.selectionStart, target.selectionEnd), '链接');
+      void handleCopyText(target.value.slice(target.selectionStart, target.selectionEnd), t('linkLabel'));
     } else if (activeTab === 'base32') {
       const text = window.getSelection()?.toString();
       if (text && exportData.secret.includes(text)) {
         event.preventDefault();
-        void handleCopyText(text, 'Base32 密钥');
+        void handleCopyText(text, t('base32KeyLabel'));
       }
     }
   };
@@ -130,7 +131,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
           <>
             <ModalHeader className="pb-1 flex flex-col gap-0.5">
               <span className="text-sm font-bold text-foreground">
-                导出账号
+                {t('exportAccountTitle')}
               </span>
               {exportData && (
                 <span className="text-xs font-normal text-default-600">
@@ -141,7 +142,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
 
             <ModalBody className="py-2 flex flex-col gap-3">
               {current && !exportData ? (
-                <Alert color="danger" variant="flat" title="无法导出账号，请关闭后重试。" />
+                <Alert color="danger" variant="flat" title={t('cannotExportAccount')} />
               ) : !exportData ? (
                 <div className="flex items-center justify-center h-44">
                   <Spinner size="md" color="primary" />
@@ -161,7 +162,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
                       title={
                         <div className="flex items-center gap-1 text-xs">
                           <QrCode size={12} />
-                          <span>二维码</span>
+                          <span>{t('tabQr')}</span>
                         </div>
                       }
                     />
@@ -170,7 +171,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
                       title={
                         <div className="flex items-center gap-1 text-xs">
                           <Link size={12} />
-                          <span>链接</span>
+                          <span>{t('tabLink')}</span>
                         </div>
                       }
                     />
@@ -179,7 +180,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
                       title={
                         <div className="flex items-center gap-1 text-xs">
                           <Key size={12} />
-                          <span>Base32</span>
+                          <span>{t('tabBase32')}</span>
                         </div>
                       }
                     />
@@ -188,7 +189,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
                   {activeTab === 'qr' && (
                     <div className="flex flex-col items-center gap-3 py-2">
                       {current?.qrFailed && (
-                        <Alert color="warning" variant="flat" title="无法生成二维码，请使用链接或 Base32 密钥。" />
+                        <Alert color="warning" variant="flat" title={t('cannotGenerateQr')} />
                       )}
                       {!qrDataUrl && !current?.qrFailed && <Spinner size="sm" />}
                       {qrDataUrl && (
@@ -209,7 +210,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
                         isDisabled={!qrDataUrl}
                         onPress={handleDownloadQr}
                       >
-                        保存图片
+                        {t('saveImage')}
                       </Button>
                     </div>
                   )}
@@ -231,9 +232,9 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
                         color="primary"
                         variant="flat"
                         startContent={<Copy size={14} />}
-                        onPress={() => handleCopyText(exportData.uri, '链接')}
+                        onPress={() => handleCopyText(exportData.uri, t('linkLabel'))}
                       >
-                        复制链接
+                        {t('copyLink')}
                       </Button>
                     </div>
                   )}
@@ -247,7 +248,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
                         color="primary"
                         // Override HeroUI's default handler rather than copying twice.
                         copyButtonProps={{ onPress: async () => {
-                          if (await handleCopyText(exportData.secret, 'Base32 密钥')) setCopied(true);
+                          if (await handleCopyText(exportData.secret, t('base32KeyLabel'))) setCopied(true);
                         } }}
                         copyIcon={copied ? <Check size={16} /> : undefined}
                         tooltipProps={{ isDisabled: copied }}
@@ -265,7 +266,7 @@ export const ExportAccountModal: React.FC<ExportAccountModalProps> = ({
 
             <ModalFooter className="pt-2 pb-3">
               <Button size="sm" variant="light" onPress={modalClose}>
-                关闭
+                {t('close')}
               </Button>
             </ModalFooter>
           </>

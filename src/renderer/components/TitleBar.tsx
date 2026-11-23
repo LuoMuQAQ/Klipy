@@ -10,6 +10,7 @@ import {
   Divider,
 } from '@heroui/react';
 import { ChevronLeft, FolderCog, Minus, Plus, X } from 'lucide-react';
+import { t } from '../i18n';
 
 export type AppView = 'accounts' | 'groups';
 
@@ -62,14 +63,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               isIconOnly
               size="sm"
               variant="light"
-              aria-label="返回账号列表"
+              aria-label={t('backToAccounts')}
               onPress={onBack}
               className="app-nodrag w-7 h-7 min-w-7 text-default-600"
             >
               <ChevronLeft size={16} />
             </Button>
             <span className="text-sm font-semibold text-foreground tracking-normal truncate">
-              分组管理
+              {t('groupManagement')}
             </span>
           </>
         ) : (
@@ -93,14 +94,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       <NavbarContent justify="end" className="app-nodrag gap-0 h-full">
         {isGroupsView ? (
           <NavbarItem className="flex items-center mr-1">
-            <Tooltip content="新建分组" delay={300} closeDelay={0} disableAnimation>
+            <Tooltip content={t('newGroup')} delay={300} closeDelay={0} disableAnimation>
               <Button
                 id="add-group-btn"
                 isIconOnly
                 size="sm"
                 color="primary"
                 variant="flat"
-                aria-label="新建分组"
+                aria-label={t('newGroup')}
                 onPress={onAddGroupOpen}
                 className="w-7 h-7 min-w-7"
               >
@@ -112,14 +113,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           <>
             {canAdd && (
               <NavbarItem className="flex items-center mr-1">
-                <Tooltip content="添加账号" delay={300} closeDelay={0} disableAnimation>
+                <Tooltip content={t('addAccount')} delay={300} closeDelay={0} disableAnimation>
                   <Button
                     id="add-account-btn"
                     isIconOnly
                     size="sm"
                     color="primary"
                     variant="flat"
-                    aria-label="添加账号"
+                    aria-label={t('addAccount')}
                     onPress={onAddOpen}
                     className="w-7 h-7 min-w-7"
                   >
@@ -130,13 +131,13 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             )}
 
             <NavbarItem className="flex items-center mr-1">
-              <Tooltip content="分组管理" delay={300} closeDelay={0} disableAnimation>
+              <Tooltip content={t('groupManagement')} delay={300} closeDelay={0} disableAnimation>
                 <Button
                   id="groups-btn"
                   isIconOnly
                   size="sm"
                   variant="light"
-                  aria-label="分组管理"
+                  aria-label={t('groupManagement')}
                   onPress={onGroupsOpen}
                   className="w-7 h-7 min-w-7 text-default-600"
                 >
@@ -155,7 +156,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             size="sm"
             radius="none"
             variant="light"
-            aria-label="最小化"
+            aria-label={t('minimize')}
             onPress={handleMinimize}
             className="w-11 h-full min-w-11 text-default-600 data-[hover=true]:bg-default-200/70"
           >
@@ -169,7 +170,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             size="sm"
             radius="none"
             variant="light"
-            aria-label="关闭"
+            aria-label={t('close')}
             onPress={handleClose}
             className="w-11 h-full min-w-11 text-default-600 data-[hover=true]:bg-danger data-[hover=true]:text-white"
           >

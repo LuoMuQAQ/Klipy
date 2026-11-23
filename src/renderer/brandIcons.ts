@@ -5,6 +5,8 @@
  * 规则按「越具体越靠前」排列，例如 GitHub Copilot 必须排在 GitHub 之前，
  * Google Cloud / Gmail 也必须排在 Google 之前。
  */
+import { LANGUAGE, compareLocalized } from './i18n';
+
 export interface BrandIcon {
   slug: string;
   pattern: RegExp;
@@ -82,8 +84,7 @@ export const BRAND_ICONS: BrandIcon[] = [
 
   // 内容 / 娱乐
   { slug: 'youtube', pattern: /\byoutube\b|油管/i },
-  { slug: 'netflix', pattern: /\bnetflix\b/i },
-  { slug: 'spotify', pattern: /\bspotify\b/i },
+  { slug: 'spotify', pattern: /\bspotify\s+(?:for\s+)?artists\b|\bartists\.spotify\.com\b/i },
   { slug: 'twitch', pattern: /\btwitch\b/i },
   { slug: 'steam', pattern: /\bsteam\b/i },
   { slug: 'epicgames', pattern: /\bepic\s*games\b/i },
@@ -106,7 +107,6 @@ export const BRAND_ICONS: BrandIcon[] = [
   { slug: 'alipay', pattern: /\balipay\b|支付宝/i },
   { slug: 'bilibili', pattern: /\bbilibili\b|哔哩哔哩|b\s*站/i },
   { slug: 'zhihu', pattern: /\bzhihu\b|知乎/i },
-  { slug: 'xiaomi', pattern: /\bxiaomi\b|小米/i },
   { slug: 'huawei', pattern: /\bhuawei\b|华为/i },
 ];
 
@@ -132,3 +132,112 @@ export function resolveBrand(
 export function brandIconUrl(slug: string): string {
   return `${import.meta.env.BASE_URL}brands/si/${slug}.svg`;
 }
+
+/** 图标库展示名称：跟随界面语言，中文使用常见中文名，英文使用品牌英文名。 */
+interface BrandName {
+  zh: string;
+  en: string;
+}
+
+const BRAND_NAMES: Record<string, BrandName> = {
+  adobe: { zh: 'Adobe', en: 'Adobe' },
+  airtable: { zh: 'Airtable', en: 'Airtable' },
+  alibabacloud: { zh: '阿里云', en: 'Alibaba Cloud' },
+  alipay: { zh: '支付宝', en: 'Alipay' },
+  amazonwebservices: { zh: 'AWS', en: 'AWS' },
+  anthropic: { zh: 'Anthropic Claude', en: 'Anthropic Claude' },
+  apple: { zh: 'Apple', en: 'Apple' },
+  asana: { zh: 'Asana', en: 'Asana' },
+  atlassian: { zh: 'Atlassian', en: 'Atlassian' },
+  bilibili: { zh: '哔哩哔哩', en: 'Bilibili' },
+  binance: { zh: '币安', en: 'Binance' },
+  bitbucket: { zh: 'Bitbucket', en: 'Bitbucket' },
+  canva: { zh: 'Canva', en: 'Canva' },
+  cloudflare: { zh: 'Cloudflare', en: 'Cloudflare' },
+  coinbase: { zh: 'Coinbase', en: 'Coinbase' },
+  confluence: { zh: 'Confluence', en: 'Confluence' },
+  digitalocean: { zh: 'DigitalOcean', en: 'DigitalOcean' },
+  discord: { zh: 'Discord', en: 'Discord' },
+  docker: { zh: 'Docker', en: 'Docker' },
+  dropbox: { zh: 'Dropbox', en: 'Dropbox' },
+  ebay: { zh: 'eBay', en: 'eBay' },
+  epicgames: { zh: 'Epic Games', en: 'Epic Games' },
+  evernote: { zh: 'Evernote 印象笔记', en: 'Evernote' },
+  expressvpn: { zh: 'ExpressVPN', en: 'ExpressVPN' },
+  facebook: { zh: 'Facebook', en: 'Facebook' },
+  figma: { zh: 'Figma', en: 'Figma' },
+  firefoxbrowser: { zh: 'Firefox 火狐', en: 'Firefox' },
+  github: { zh: 'GitHub', en: 'GitHub' },
+  githubcopilot: { zh: 'GitHub Copilot', en: 'GitHub Copilot' },
+  gitlab: { zh: 'GitLab', en: 'GitLab' },
+  gmail: { zh: 'Gmail 谷歌邮箱', en: 'Gmail' },
+  google: { zh: 'Google 谷歌', en: 'Google' },
+  googlecloud: { zh: 'Google Cloud 谷歌云', en: 'Google Cloud' },
+  googlegemini: { zh: 'Google Gemini', en: 'Google Gemini' },
+  heroku: { zh: 'Heroku', en: 'Heroku' },
+  huawei: { zh: '华为', en: 'Huawei' },
+  hubspot: { zh: 'HubSpot', en: 'HubSpot' },
+  huggingface: { zh: 'Hugging Face', en: 'Hugging Face' },
+  ibm: { zh: 'IBM', en: 'IBM' },
+  instagram: { zh: 'Instagram', en: 'Instagram' },
+  intel: { zh: 'Intel 英特尔', en: 'Intel' },
+  jira: { zh: 'Jira', en: 'Jira' },
+  linkedin: { zh: 'LinkedIn 领英', en: 'LinkedIn' },
+  mailchimp: { zh: 'Mailchimp', en: 'Mailchimp' },
+  microsoft: { zh: 'Microsoft 微软', en: 'Microsoft' },
+  miro: { zh: 'Miro', en: 'Miro' },
+  mozilla: { zh: 'Mozilla', en: 'Mozilla' },
+  muse: { zh: 'Muse', en: 'Muse' },
+  netlify: { zh: 'Netlify', en: 'Netlify' },
+  nintendoswitch: { zh: 'Nintendo 任天堂', en: 'Nintendo' },
+  nordvpn: { zh: 'NordVPN', en: 'NordVPN' },
+  notion: { zh: 'Notion', en: 'Notion' },
+  nvidia: { zh: 'NVIDIA 英伟达', en: 'NVIDIA' },
+  openai: { zh: 'OpenAI ChatGPT', en: 'OpenAI' },
+  oracle: { zh: 'Oracle 甲骨文', en: 'Oracle' },
+  paypal: { zh: 'PayPal 贝宝', en: 'PayPal' },
+  perplexity: { zh: 'Perplexity', en: 'Perplexity' },
+  playstation: { zh: 'PlayStation', en: 'PlayStation' },
+  proton: { zh: 'Proton', en: 'Proton' },
+  reddit: { zh: 'Reddit', en: 'Reddit' },
+  revolut: { zh: 'Revolut', en: 'Revolut' },
+  roblox: { zh: 'Roblox', en: 'Roblox' },
+  salesforce: { zh: 'Salesforce', en: 'Salesforce' },
+  sap: { zh: 'SAP', en: 'SAP' },
+  shopify: { zh: 'Shopify', en: 'Shopify' },
+  slack: { zh: 'Slack', en: 'Slack' },
+  spotify: { zh: 'Spotify for Artists', en: 'Spotify for Artists' },
+  steam: { zh: 'Steam', en: 'Steam' },
+  stripe: { zh: 'Stripe', en: 'Stripe' },
+  telegram: { zh: 'Telegram 电报', en: 'Telegram' },
+  tencentqq: { zh: '腾讯 QQ', en: 'Tencent QQ' },
+  tiktok: { zh: 'TikTok 抖音', en: 'TikTok' },
+  trello: { zh: 'Trello', en: 'Trello' },
+  twitch: { zh: 'Twitch', en: 'Twitch' },
+  twitter: { zh: 'Twitter', en: 'Twitter' },
+  vercel: { zh: 'Vercel', en: 'Vercel' },
+  wechat: { zh: '微信', en: 'WeChat' },
+  whatsapp: { zh: 'WhatsApp', en: 'WhatsApp' },
+  wise: { zh: 'Wise', en: 'Wise' },
+  x: { zh: 'X', en: 'X' },
+  youtube: { zh: 'YouTube 油管', en: 'YouTube' },
+  zhihu: { zh: '知乎', en: 'Zhihu' },
+  zoom: { zh: 'Zoom', en: 'Zoom' },
+};
+
+export interface BrandLibraryItem {
+  slug: string;
+  label: string;
+}
+
+export function brandLabel(slug: string): string {
+  const entry = BRAND_NAMES[slug];
+  return entry ? entry[LANGUAGE] : slug;
+}
+
+/** 去重后的内置图标库，按当前界面语言字母顺序排布（中文为拼音顺序）。 */
+export const BRAND_LIBRARY: BrandLibraryItem[] = Array.from(
+  new Set(BRAND_ICONS.map((brand) => brand.slug)),
+)
+  .map((slug) => ({ slug, label: brandLabel(slug) }))
+  .sort((a, b) => compareLocalized(a.label, b.label));

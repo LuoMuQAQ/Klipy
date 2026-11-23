@@ -3,7 +3,7 @@
 **项目名称**：Klipy（Windows 轻量级 2FA / TOTP 身份验证器）  
 **当前版本**：`1.1.0`  
 **技术栈**：Electron 45.4.1 + React 18 + TypeScript + HeroUI (`@heroui/react` 2.8.10) + Tailwind CSS 3 + Framer Motion 11 + C# (.NET 10)  
-**最近更新**：2026-11-22（统一 `KLIPY-DPAPI-2` 单文件原子加密库、批量导入去重、非 30s 倒计时角标、键盘菜单/排序与仓库清理）  
+**最近更新**：2026-11-23（统一 `KLIPY-DPAPI-2` 单文件原子加密库、批量导入去重、非 30s 倒计时角标、键盘菜单/排序、自定义账号图标、自动中英双语与仓库清理）
 **历次变更记录**：见 [`CHANGELOG.md`](CHANGELOG.md)；最近一轮审查详情见 [`REVIEW.md`](REVIEW.md)。
 
 > ⚠️ **不要清空 `%APPDATA%\WindowsAuthenticatorDemo`**：该目录可能包含用户的真实数据。需要测试时请设置 `AUTHENTICATOR_DATA_DIR` 指向临时目录。
@@ -27,7 +27,9 @@ Klipy 是面向 Windows 桌面的轻量级 2FA / TOTP 身份验证器，定位�
   - **左键单击卡片**由主进程代理到 C# 后端实时生成验证码并写入 Windows 隐私剪贴板，弹出标题栏下方的紧凑 Toast 浮层。
   - **左键按住上下拖拽**可调整账号或分组顺序（`framer-motion` `<Reorder.Group>`），无顺序变化时不重写磁盘。
   - **右键或键盘**（聚焦卡片按 `Shift+F10` / `ContextMenu`）弹出 HeroUI `<Dropdown>` 上下文菜单；支持导出、编辑、上移/下移、删除，也支持 `Alt+↑` / `Alt+↓` 快捷移动。
-  - **离线品牌头像**：内置 85 个品牌图标（`public/brands/si/<slug>.svg`），先按服务名、再按账号匹配，未命中回退名称缩写；来源见 [`public/brands/SOURCES.md`](public/brands/SOURCES.md)。
+  - **离线品牌头像**：83 个品牌图标可选，先按服务名、再按账号匹配，未命中回退名称缩写；下架项仅保留素材以显示原手选图标。来源及审查见 [`public/brands/SOURCES.md`](public/brands/SOURCES.md)。
+  - **自定义账号图标**：右键「编辑」第一条为居中的圆形图标入口（无文字，悬停变灰并显示铅笔）；点击打开独立选择弹窗，顶部固定「选择图片」，下方圆形图标网格独立滚动并在首尾留白。图标按界面语言排序，支持「自动匹配」复位；选择 PNG、JPEG、WebP、GIF、BMP、ICO、AVIF、SVG（≤20 MB）后进入裁切页，可拖动、缩放并预览，确认后输出 128×128 PNG，随账号写入加密保险库。
+- **语言**：通过主进程 `app.getLocale()` 自动检测系统默认语言，目前提供简体中文与英语，无手动切换入口；界面文案、Toast、无障碍标签、品牌图标名称与排序均随语言变化。
 - **分组管理（强制归属分组）**：
   - 独立「分组管理」页：新建分组弹窗（非空、最长 20 字符、不区分大小写去重、无数量上限）、拖拽或键盘重排、右键/键盘菜单重命名或删除。
   - 删除分组会**单次原子地**一并删除组内账号（确认框标明数量且不可撤销）。
@@ -76,6 +78,7 @@ C# Backend (.NET 10 Console)        bin/backend/AuthenticatorBackend.exe
 ### 3.1 统一加密存储（`KLIPY-DPAPI-2`）
 - 数据目录默认 `%APPDATA%\WindowsAuthenticatorDemo\`，可通过 `AUTHENTICATOR_DATA_DIR` 覆盖（[`backend/AppPaths.cs`](backend/AppPaths.cs)）。
 - [`backend/VaultFile.cs`](backend/VaultFile.cs) + [`backend/VaultStore.cs`](backend/VaultStore.cs) 将分组（`groups`）与账号（`accounts`）统一保存在单个 `accounts.json`（头部 `KLIPY-DPAPI-2\n` + Windows DPAPI 当前用户密文）。
+- 账号图标保存在账号记录的 `icon` 字段中：空字符串表示自动匹配，`si:<slug>` 引用内置品牌图标，`data:image/png;base64,...` 为用户上传并缩放后的自定义图片（≤256 KB）。
 - 每次写入先写临时文件并刷盘、读取并解密逐字节校验，再用 `File.Replace` 一次性原子替换；文件损坏、密文篡改或遇到未知更高版本号时直接以退出码 `20` 终止启动，绝不覆盖原文件。
 - 启动时自动升级旧版明文 JSON 或 `KLIPY-DPAPI-1` + `groups.json`；若存在旧版孤儿账号，在内存统一收编至「默认分组」后一次性原子落盘，随后清理遗留 `groups.json`。升级后请勿再用旧版打开同一数据目录。
 
@@ -95,6 +98,7 @@ C# Backend (.NET 10 Console)        bin/backend/AuthenticatorBackend.exe
 ├── backend/
 │   ├── AuthenticatorBackend.csproj   # .NET 10 控制台项目
 │   ├── Models.cs                     # VaultSnapshot / AccountRecord / GroupRecord / BatchImportResultDto 等
+│   ├── AccountIcon.cs                # 账号图标编码校验（自动 / si:slug / 128px PNG data URL）
 │   ├── VaultFile.cs                  # KLIPY-DPAPI-2 编解码、旧版迁移与原子替换
 │   ├── VaultStore.cs                 # 统一线程安全存储（分组 + 账号 + 批量去重 + 原子删分组）
 │   ├── TotpEngine.cs                 # Base32、RFC 6238 HMAC-SHA1/256/512、otpauth 解析
@@ -109,7 +113,7 @@ C# Backend (.NET 10 Console)        bin/backend/AuthenticatorBackend.exe
 │   └── brands/                       # 85 个离线品牌图标及 SOURCES.md
 ├── src/
 │   ├── main/                         # main.js / backend-client.js / ipc-validation.js / renderer-security.js / preload.js
-│   └── renderer/                     # App.tsx / main.tsx / types.ts / brandIcons.ts / components/* / fonts/misans/
+│   └── renderer/                     # App.tsx / main.tsx / i18n.ts / types.ts / brandIcons.ts / utils/accountIcon.ts / components/* / fonts/misans/
 ├── tests/                            # backend.test.cjs / security.test.cjs / electron-smoke.cjs / setup-smoke.cjs
 ├── electron-builder.json             # NSIS 安装包配置（appId: io.github.luomuqaq.klipy）
 ├── HANDOFF.md                        # 本文档
@@ -130,3 +134,5 @@ C# Backend (.NET 10 Console)        bin/backend/AuthenticatorBackend.exe
 7. **品牌图标顺序**：`brandIcons.ts` 中 `githubcopilot` 须在 `github` 前，`googlecloud`/`gmail`/`googlegemini` 须在 `google` 前。
 8. **紧凑 Toast 偏移**：`src/renderer/main.tsx` 中 `placement="top-center"` + `toastOffset={52}` + `w-fit max-w-[300px] mx-auto`；改动标题栏高度（`2.75rem`）时须同步更新 `52`。
 9. **打包与覆盖更新**：`electron-builder.json` 的 `appId`、`productName` 与当前用户安装模式不可随意变更，以保证新版 Setup 可直接覆盖旧版并保留 `%APPDATA%\WindowsAuthenticatorDemo`。
+10. **自定义账号图标**：只允许空字符串、`si:<slug>` 或 ≤256 KB 的 `data:image/png;base64,...`（128×128 PNG，边长 ≤512）；不要保存远程 URL 或原始上传文件。Electron IPC 与 [`backend/AccountIcon.cs`](backend/AccountIcon.cs) 做双重校验，未知格式会使启动失败而不是静默清空。
+11. **双语与图标排序**：界面语言只由 `app.getLocale()` 决定（经 preload 的 `additionalArguments` 注入），不要添加本地语言切换；品牌图标排序使用当前语言的 `Intl.Collator`（中文拼音、英文 A-Z），改动品牌名称时同步更新 `BRAND_NAMES` 的中英文两套标签。

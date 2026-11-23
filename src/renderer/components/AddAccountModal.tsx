@@ -20,6 +20,7 @@ import {
 } from '@heroui/react';
 import { Key, Link, QrCode, Upload } from 'lucide-react';
 import { AddAccountParams, Group, MigrationParseResult, ParsedUriData } from '../types';
+import { plural, t } from '../i18n';
 import { formatError } from '../utils/errors';
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -116,7 +117,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
         const parsed = await window.authenticatorAPI.parseMigration(raw);
         if (requestId !== parseRequestRef.current) return;
         if (parsed.accounts.length === 0) {
-          setErrorMsg('迁移数据中没有可导入的 TOTP 账号');
+          setErrorMsg(t('migrationNoAccounts'));
           return;
         }
         setMigration(parsed);
@@ -128,7 +129,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
       }
     } catch (error) {
       if (requestId === parseRequestRef.current) {
-        setErrorMsg(formatError(error, source === 'uri' ? '链接格式无效' : '二维码内容无效'));
+        setErrorMsg(formatError(error, source === 'uri' ? t('errorInvalidLink') : t('errorInvalidQr')));
       }
     }
   };
@@ -152,7 +153,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
     setMigration(null);
     clearQrPreview();
     if (file.size > MAX_IMAGE_BYTES) {
-      setErrorMsg('图片不能超过 20 MB。');
+      setErrorMsg(t('errorImageTooLarge'));
       return;
     }
 
@@ -179,15 +180,15 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
         const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const raw = jsQR(data.data, data.width, data.height)?.data.trim();
         if (raw) void parseImport(raw, 'qr', requestId);
-        else setErrorMsg('未识别到有效二维码');
+        else setErrorMsg(t('errorQrNotRecognized'));
       } catch {
-        if (requestId === parseRequestRef.current) setErrorMsg('无法读取图片内容');
+        if (requestId === parseRequestRef.current) setErrorMsg(t('errorImageReadFailed'));
       }
     };
     img.onerror = () => {
       if (requestId !== parseRequestRef.current) return;
       clearQrPreview();
-      setErrorMsg('图片加载失败');
+      setErrorMsg(t('errorImageLoadFailed'));
     };
     img.src = url;
   };
@@ -225,8 +226,8 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
     const result = await window.authenticatorAPI.addAccountsBatch({
       groupId,
       accounts: payload.accounts.map((item) => ({
-        issuer: item.issuer || '未命名',
-        account: item.account || '账号',
+        issuer: item.issuer || t('unnamed'),
+        account: item.account || t('accountFallback'),
         secret: item.secret,
         digits: item.digits,
         period: item.period,
@@ -236,7 +237,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
 
     if (result.added === 0 && result.duplicates > 0) {
       addToast({
-        title: `所有 ${result.duplicates} 个账号均已存在，未重复导入`,
+        title: t('allDuplicates', { count: result.duplicates }),
         color: 'warning',
         timeout: 1_800,
       });
@@ -246,8 +247,8 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
     addToast({
       title:
         result.duplicates > 0
-          ? `已导入 ${result.added} 个账号，跳过 ${result.duplicates} 个重复`
-          : `已导入 ${result.added} 个账号`,
+          ? t('importedWithSkipped', { count: result.added, duplicates: result.duplicates })
+          : plural(result.added, t('importedCountOne'), t('importedCountMany'), { count: result.added }),
       color: 'success',
       timeout: 1_800,
     });
@@ -258,7 +259,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
     setErrorMsg(null);
 
     if (!groupId) {
-      setErrorMsg('请先选择分组。');
+      setErrorMsg(t('errorSelectGroupFirst'));
       return;
     }
 
@@ -269,12 +270,12 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
       if (activeTab === 'manual') {
         const cleanSecret = secret.trim().replace(/[\s-]/g, '').toUpperCase();
         if (!cleanSecret) {
-          throw new Error('请输入密钥');
+          throw new Error(t('errorEnterSecret'));
         }
 
         await onAdd({
-          issuer: issuer.trim() || '未命名',
-          account: account.trim() || '账号',
+          issuer: issuer.trim() || t('unnamed'),
+          account: account.trim() || t('accountFallback'),
           secret: cleanSecret,
           digits: 6,
           period: 30,
@@ -286,8 +287,8 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
           await importMigration(migration);
         } else if (uriParsed) {
           await onAdd({
-            issuer: uriParsed.issuer || '未命名',
-            account: uriParsed.account || '账号',
+            issuer: uriParsed.issuer || t('unnamed'),
+            account: uriParsed.account || t('accountFallback'),
             secret: uriParsed.secret,
             digits: uriParsed.digits,
             period: uriParsed.period,
@@ -295,15 +296,15 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
             groupId,
           });
         } else {
-          throw new Error('请输入有效的链接');
+          throw new Error(t('errorInvalidLinkInput'));
         }
       } else {
         if (migration) {
           await importMigration(migration);
         } else if (qrParsed) {
           await onAdd({
-            issuer: qrParsed.issuer || '未命名',
-            account: qrParsed.account || '账号',
+            issuer: qrParsed.issuer || t('unnamed'),
+            account: qrParsed.account || t('accountFallback'),
             secret: qrParsed.secret,
             digits: qrParsed.digits,
             period: qrParsed.period,
@@ -311,7 +312,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
             groupId,
           });
         } else {
-          throw new Error('请先导入有效二维码');
+          throw new Error(t('errorImportQrFirst'));
         }
       }
 
@@ -319,7 +320,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
       resetForm();
       onClose();
     } catch (err) {
-      setErrorMsg(formatError(err, '添加失败'));
+      setErrorMsg(formatError(err, t('errorAddFailed')));
     } finally {
       submitting.current = false;
       setLoading(false);
@@ -338,10 +339,14 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
     <Card shadow="none" className="border border-default-200 bg-content1">
       <CardBody className="flex flex-col gap-2 p-2.5">
         <div className="flex items-center justify-between text-xs text-default-600">
-          <span>识别到 {migration.accounts.length} 个账号</span>
+          <span>
+            {plural(migration.accounts.length, t('migrationFoundOne'), t('migrationFoundMany'), {
+              count: migration.accounts.length,
+            })}
+          </span>
           {migration.skipped > 0 && (
             <Chip size="sm" variant="flat" color="warning" className="h-5 text-[10px]">
-              跳过 {migration.skipped}
+              {t('migrationSkippedChip', { count: migration.skipped })}
             </Chip>
           )}
         </div>
@@ -353,19 +358,19 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
             >
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs font-medium text-foreground">
-                  {item.issuer || '未命名'}
+                  {item.issuer || t('unnamed')}
                 </div>
-                <div className="truncate text-[11px] text-default-500">{item.account || '账号'}</div>
+                <div className="truncate text-[11px] text-default-500">{item.account || t('accountFallback')}</div>
               </div>
               <Chip size="sm" variant="flat" className="h-5 flex-shrink-0 text-[10px]">
-                {item.digits} 位 · {item.algorithm}
+                {t('migrationDigits', { digits: item.digits })} · {item.algorithm}
               </Chip>
             </div>
           ))}
         </div>
         <p className="text-[11px] leading-4 text-default-500">
-          来自 Google Authenticator 迁移链接；「跳过」为 HOTP/MD5 或不兼容条目，已存在相同密钥的账号会自动跳过。
-          {migration.batchSize > 1 && '这份迁移含多个批次，请分别导入其余批次。'}
+          {t('migrationHelp')}
+          {migration.batchSize > 1 && ` ${t('migrationMultiBatch')}`}
         </p>
       </CardBody>
     </Card>
@@ -392,14 +397,14 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
         {(modalClose) => (
           <>
             <ModalHeader className="pb-1 text-sm font-bold text-foreground">
-              添加账号
+              {t('addAccountTitle')}
             </ModalHeader>
 
             <ModalBody className="py-2 flex flex-col gap-3">
               <Select
                 size="sm"
                 variant="bordered"
-                label="分组"
+                label={t('groupLabel')}
                 isRequired
                 disallowEmptySelection
                 items={groups}
@@ -431,7 +436,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                   title={
                     <div className="flex items-center gap-1 text-xs">
                       <Key size={12} />
-                      <span>手动</span>
+                      <span>{t('tabManual')}</span>
                     </div>
                   }
                 />
@@ -440,7 +445,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                   title={
                     <div className="flex items-center gap-1 text-xs">
                       <Link size={12} />
-                      <span>链接</span>
+                      <span>{t('tabLink')}</span>
                     </div>
                   }
                 />
@@ -449,7 +454,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                   title={
                     <div className="flex items-center gap-1 text-xs">
                       <QrCode size={12} />
-                      <span>二维码</span>
+                      <span>{t('tabQr')}</span>
                     </div>
                   }
                 />
@@ -466,7 +471,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
               {activeTab === 'manual' && (
                 <div className="flex flex-col gap-2.5">
                   <Input
-                    label="平台"
+                    label={t('platformLabel')}
                     size="sm"
                     variant="bordered"
                     isDisabled={loading}
@@ -475,7 +480,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                   />
 
                   <Input
-                    label="账号"
+                    label={t('accountLabel')}
                     size="sm"
                     variant="bordered"
                     isDisabled={loading}
@@ -484,7 +489,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                   />
 
                   <Input
-                    label="密钥 (Base32)"
+                    label={t('secretLabel')}
                     size="sm"
                     variant="bordered"
                     isDisabled={loading}
@@ -500,7 +505,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
               {activeTab === 'uri' && (
                 <div className="flex flex-col gap-2.5">
                   <Input
-                    label="OTP Auth 链接"
+                    label={t('otpAuthLinkLabel')}
                     size="sm"
                     variant="bordered"
                     isDisabled={loading}
@@ -512,13 +517,13 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                     <Card shadow="none" className="border border-default-200 bg-default-50">
                       <CardBody className="p-2.5 flex flex-col gap-1 text-xs">
                         <div className="flex justify-between items-center text-default-600">
-                          <span>平台</span>
+                          <span>{t('platformLabel')}</span>
                           <Chip size="sm" variant="flat" color="primary" className="h-5 text-xs">
                             {uriParsed.issuer || '-'}
                           </Chip>
                         </div>
                         <div className="flex justify-between items-center text-default-600">
-                          <span>账号</span>
+                          <span>{t('accountLabel')}</span>
                           <span className="font-medium text-foreground">{uriParsed.account || '-'}</span>
                         </div>
                       </CardBody>
@@ -564,7 +569,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                         <Upload size={24} className="text-default-400" />
                       )}
                       <span className="text-xs text-default-600">
-                        点击选择图片、拖拽或 Ctrl+V 粘贴
+                        {t('qrUploadHint')}
                       </span>
                     </CardBody>
                   </Card>
@@ -573,13 +578,13 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                     <Card shadow="none" className="border border-default-200 bg-default-50">
                       <CardBody className="p-2.5 flex flex-col gap-1 text-xs">
                         <div className="flex justify-between items-center text-default-600">
-                          <span>平台</span>
+                          <span>{t('platformLabel')}</span>
                           <Chip size="sm" variant="flat" color="primary" className="h-5 text-xs">
                             {qrParsed.issuer || '-'}
                           </Chip>
                         </div>
                         <div className="flex justify-between items-center text-default-600">
-                          <span>账号</span>
+                          <span>{t('accountLabel')}</span>
                           <span className="font-medium text-foreground">{qrParsed.account || '-'}</span>
                         </div>
                       </CardBody>
@@ -592,7 +597,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
 
             <ModalFooter className="pt-2 pb-3">
               <Button size="sm" variant="light" onPress={modalClose} isDisabled={loading}>
-                取消
+                {t('cancel')}
               </Button>
               <Button
                 size="sm"
@@ -601,7 +606,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                 isDisabled={!canSubmit}
                 onPress={handleSubmit}
               >
-                {migration ? `导入 ${migration.accounts.length} 个` : '添加'}
+                {migration ? t('importN', { count: migration.accounts.length }) : t('addAction')}
               </Button>
             </ModalFooter>
           </>

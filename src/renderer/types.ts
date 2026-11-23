@@ -10,6 +10,8 @@ export interface Account {
   digits: number;
   algorithm: string;
   groupId: string;
+  /** 空=自动匹配；si:<slug>=内置图标；data:image/png;base64=自定义图片。 */
+  icon: string;
   createdAt: number;
 }
 
@@ -89,6 +91,8 @@ export interface ExportAccountData {
 }
 
 export interface AuthenticatorAPI {
+  /** 主进程 app.getLocale() 检测到的系统默认语言。 */
+  locale: string;
   listAccounts: () => Promise<Account[]>;
   addAccount: (params: AddAccountParams) => Promise<Account>;
   addAccountsBatch: (params: AddAccountsBatchParams) => Promise<BatchImportResult>;
@@ -98,6 +102,7 @@ export interface AuthenticatorAPI {
     issuer: string;
     account: string;
     groupId: string;
+    icon?: string;
   }) => Promise<Account>;
   parseUri: (uri: string) => Promise<ParsedUriData>;
   parseMigration: (uri: string) => Promise<MigrationParseResult>;

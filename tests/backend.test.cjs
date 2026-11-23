@@ -60,6 +60,51 @@ test('exported account round-trips labels with colons and list reports its actua
   assert.deepEqual([parsed.data.issuer, parsed.data.account, parsed.data.secret], [account.issuer, account.account, secret]);
 });
 
+test('account icons persist through edits, can be cleared, and reject invalid payloads', windowsOnly, (t) => {
+  const { run } = fixture(t);
+  const customIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const baseUpdate = { issuer: account.issuer, account: account.account, groupId: group.id };
+
+  const [added] = run([['add', account]]);
+  assert(added.success);
+
+  const [selected] = run([['update', { id: added.data.id, ...baseUpdate, icon: 'si:github' }]]);
+  assert(selected.success);
+  assert.equal(selected.data.icon, 'si:github');
+
+  // Omitting icon keeps the existing one; a new process must see it persisted.
+  const [kept] = run([['update', { id: added.data.id, ...baseUpdate }], ['list']]);
+  assert(kept.success);
+  assert.equal(kept.data.icon, 'si:github');
+  assert.equal(run([['list']])[0].data[0].icon, 'si:github');
+
+  const [custom] = run([['update', { id: added.data.id, ...baseUpdate, icon: customIcon }]]);
+  assert(custom.success);
+  assert.equal(custom.data.icon, customIcon);
+
+  const [cleared] = run([['update', { id: added.data.id, ...baseUpdate, icon: '' }]]);
+  assert(cleared.success);
+  assert.equal(cleared.data.icon, '');
+
+  const hugePng = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(hugePng);
+  hugePng.writeUInt32BE(13, 8);
+  hugePng.write('IHDR', 12, 'ascii');
+  hugePng.writeUInt32BE(10_000, 16);
+  hugePng.writeUInt32BE(10_000, 20);
+  const hugeIcon = `data:image/png;base64,${hugePng.toString('base64')}`;
+
+  const invalid = run([
+    ['update', { id: added.data.id, ...baseUpdate, icon: 'https://example.com/icon.png' }],
+    ['update', { id: added.data.id, ...baseUpdate, icon: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=' }],
+    ['update', { id: added.data.id, ...baseUpdate, icon: 'data:image/png;base64,aGVsbG8=' }],
+    ['update', { id: added.data.id, ...baseUpdate, icon: hugeIcon }],
+    ['update', { id: added.data.id, ...baseUpdate, icon: 'si:../brands/github' }],
+  ]);
+  assert(invalid.every((value) => !value.success));
+  assert.equal(run([['list']])[0].data[0].icon, '');
+});
+
 test('a no-op reorder does not rewrite the unified encrypted vault', windowsOnly, (t) => {
   const { run, dir } = fixture(t);
   const [added] = run([['add', account]]);

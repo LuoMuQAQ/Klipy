@@ -26,6 +26,7 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { Account, AddAccountParams, Group } from './types';
+import { t } from './i18n';
 import { TitleBar, type AppView } from './components/TitleBar';
 import { TotpProgress } from './components/TotpProgress';
 import { GroupFilterBar } from './components/GroupFilterBar';
@@ -188,7 +189,7 @@ export const App: React.FC = () => {
       setAccountToDelete(null);
       await fetchAccounts();
     } catch {
-      addToast({ title: '删除失败，请重试', color: 'danger', timeout: 1_600 });
+      addToast({ title: t('deleteAccountFailed'), color: 'danger', timeout: 1_600 });
     }
   };
 
@@ -196,15 +197,16 @@ export const App: React.FC = () => {
     issuer: string;
     account: string;
     groupId: string;
+    icon: string;
   }) => {
     if (!editingAccount) return;
     try {
       await window.authenticatorAPI.updateAccount({ id: editingAccount.id, ...params });
       setEditingAccount(null);
       await fetchAccounts();
-      addToast({ title: '账号信息已更新', color: 'success', timeout: 1_400 });
+      addToast({ title: t('accountUpdated'), color: 'success', timeout: 1_400 });
     } catch {
-      addToast({ title: '保存失败，请重试', color: 'danger', timeout: 1_600 });
+      addToast({ title: t('saveFailed'), color: 'danger', timeout: 1_600 });
     }
   };
 
@@ -214,7 +216,7 @@ export const App: React.FC = () => {
     try {
       if (!await window.authenticatorAPI.copyAccountCode(account.id)) throw new Error();
     } catch {
-      addToast({ title: '复制失败，请重试', color: 'danger', timeout: 1500 });
+      addToast({ title: t('copyCodeFailed'), color: 'danger', timeout: 1500 });
       return;
     }
 
@@ -225,7 +227,7 @@ export const App: React.FC = () => {
     }, 1200);
 
     addToast({
-      title: `已复制 ${account.issuer} 验证码`,
+      title: t('copiedCode', { issuer: account.issuer }),
       color: 'success',
       timeout: 1500,
     });
@@ -255,7 +257,7 @@ export const App: React.FC = () => {
     try {
       await window.authenticatorAPI.reorderAccounts(ids);
     } catch {
-      addToast({ title: '未能保存账号顺序', color: 'danger', timeout: 1_600 });
+      addToast({ title: t('saveAccountOrderFailed'), color: 'danger', timeout: 1_600 });
       await fetchAccounts();
     }
   };
@@ -272,7 +274,7 @@ export const App: React.FC = () => {
     try {
       await window.authenticatorAPI.reorderGroups(order.map((group) => group.id));
     } catch {
-      addToast({ title: '未能保存分组顺序', color: 'danger', timeout: 1_600 });
+      addToast({ title: t('saveGroupOrderFailed'), color: 'danger', timeout: 1_600 });
       await fetchGroups();
     }
   };
@@ -291,7 +293,7 @@ export const App: React.FC = () => {
     try {
       await window.authenticatorAPI.reorderAccounts(ids);
     } catch {
-      addToast({ title: '未能保存账号顺序', color: 'danger', timeout: 1_600 });
+      addToast({ title: t('saveAccountOrderFailed'), color: 'danger', timeout: 1_600 });
       await fetchAccounts();
     }
   };
@@ -324,16 +326,16 @@ export const App: React.FC = () => {
 
   const accountMenuItems = useMemo(() => {
     const items: Array<{ key: string; label: string; icon: React.ReactNode; isDanger?: boolean }> = [
-      { key: 'export', label: '导出', icon: <Share size={14} /> },
-      { key: 'edit', label: '编辑', icon: <Pencil size={14} /> },
+      { key: 'export', label: t('exportAction'), icon: <Share size={14} /> },
+      { key: 'edit', label: t('editAction'), icon: <Pencil size={14} /> },
     ];
     if (visibleIds.length > 1) {
       items.push(
-        { key: 'moveUp', label: '上移', icon: <ArrowUp size={14} /> },
-        { key: 'moveDown', label: '下移', icon: <ArrowDown size={14} /> },
+        { key: 'moveUp', label: t('moveUp'), icon: <ArrowUp size={14} /> },
+        { key: 'moveDown', label: t('moveDown'), icon: <ArrowDown size={14} /> },
       );
     }
-    items.push({ key: 'delete', label: '删除', icon: <Trash2 size={14} />, isDanger: true });
+    items.push({ key: 'delete', label: t('deleteAction'), icon: <Trash2 size={14} />, isDanger: true });
     return items;
   }, [visibleIds.length]);
 
@@ -353,8 +355,8 @@ export const App: React.FC = () => {
 
       {(accountsError || groupsError) && (
         <Alert className="mx-3 mt-2 w-auto shrink-0" color="danger" variant="flat"
-          title={accountsError && groupsError ? '无法读取账号和分组' : accountsError ? '无法读取账号' : '无法读取分组'}
-          endContent={<Button size="sm" variant="flat" onPress={refreshAll}>重试</Button>}
+          title={accountsError && groupsError ? t('loadAllFailed') : accountsError ? t('loadAccountsFailed') : t('loadGroupsFailed')}
+          endContent={<Button size="sm" variant="flat" onPress={refreshAll}>{t('retry')}</Button>}
         />
       )}
 
@@ -436,9 +438,9 @@ export const App: React.FC = () => {
                     color="default"
                     className="bg-default-100 text-default-600"
                   />
-                  <span className="text-sm font-medium text-default-600">还没有分组</span>
+                  <span className="text-sm font-medium text-default-600">{t('noGroups')}</span>
                   <span className="text-[11px] leading-4 text-default-400">
-                    账号需要保存在分组中，先创建一个分组再添加账号。
+                    {t('noGroupsHint')}
                   </span>
                   <Button
                     size="sm"
@@ -447,7 +449,7 @@ export const App: React.FC = () => {
                     startContent={<FolderPlus size={14} />}
                     onPress={() => setView('groups')}
                   >
-                    新建分组
+                    {t('newGroup')}
                   </Button>
                 </CardBody>
               </Card>
@@ -464,11 +466,11 @@ export const App: React.FC = () => {
                     className="bg-default-100 text-default-600"
                   />
                   <span className="text-sm text-default-600">
-                    {accounts.length === 0 ? '还没有账号' : '该分组暂无账号'}
+                    {accounts.length === 0 ? t('noAccounts') : t('noAccountsInGroup')}
                   </span>
                   {accounts.length > 0 && currentGroupName && (
                     <span className="text-[11px] leading-4 text-default-400">
-                      「{currentGroupName}」下还没有账号
+                      {t('groupEmptyHint', { group: currentGroupName })}
                     </span>
                   )}
                   <Button
@@ -478,7 +480,7 @@ export const App: React.FC = () => {
                     startContent={<Plus size={14} />}
                     onPress={openAddModal}
                   >
-                    添加账号
+                    {t('addAccount')}
                   </Button>
                 </CardBody>
               </Card>
@@ -508,7 +510,7 @@ export const App: React.FC = () => {
               />
             </DropdownTrigger>
             <DropdownMenu
-              aria-label="账号操作"
+              aria-label={t('accountActions')}
               items={accountMenuItems}
               disabledKeys={accountMenuDisabledKeys}
               onAction={(key) => {

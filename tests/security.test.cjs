@@ -112,6 +112,11 @@ test('corruption and incomplete migrations cannot turn into an empty writable va
   assert.deepEqual(run(corruptGroups, [['list']]), { status: 20, responses: [] });
   assert.equal(readFileSync(corruptGroups.groupsFile, 'utf8'), '[{"id":');
 
+  // Stored icon values are part of the vault contract: an unsupported scheme fails closed.
+  const badIcon = fixture(t, JSON.stringify([{ ...account, icon: 'javascript:alert(1)' }]), JSON.stringify([group]));
+  assert.deepEqual(run(badIcon, [['list']]), { status: 20, responses: [] });
+  assert.equal(readFileSync(badIcon.vault, 'utf8'), JSON.stringify([{ ...account, icon: 'javascript:alert(1)' }]));
+
   const f = fixture(t);
   writeFileSync(f.vault + '.interrupted.tmp', Buffer.concat([prefixV2, Buffer.from('uncommitted')]));
   assert(run(f, [['list']]).responses[0].success);
@@ -158,11 +163,29 @@ test('second backend cannot open the same data directory', windowsOnly, async (t
 test('IPC schemas bound sizes without admitting extra arguments', () => {
   const { id, createdAt, groupId, ...validItem } = account;
   const validAdd = { ...validItem, groupId };
+  const pngIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const hugePng = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(hugePng);
+  hugePng.writeUInt32BE(13, 8);
+  hugePng.write('IHDR', 12, 'ascii');
+  hugePng.writeUInt32BE(10_000, 16);
+  hugePng.writeUInt32BE(10_000, 20);
+  const hugeIcon = `data:image/png;base64,${hugePng.toString('base64')}`;
+  const updateWithIcon = (icon) => ({ id, issuer: 'Fixture', account: 'updated', groupId, icon });
   assert.doesNotThrow(() => validate('add', validAdd));
   assert.doesNotThrow(() => validate('addBatch', { groupId, accounts: [validItem] }));
   assert.throws(() => validate('addBatch', { groupId, accounts: [] }));
   assert.throws(() => validate('addBatch', { groupId, accounts: [{ ...validItem, extra: 1 }] }));
   assert.throws(() => validate('addBatch', { groupId, accounts: Array(501).fill(validItem) }));
+  assert.doesNotThrow(() => validate('update', { id, issuer: 'Fixture', account: 'updated', groupId }));
+  assert.doesNotThrow(() => validate('update', updateWithIcon('')));
+  assert.doesNotThrow(() => validate('update', updateWithIcon('si:github')));
+  assert.doesNotThrow(() => validate('update', updateWithIcon(pngIcon)));
+  assert.throws(() => validate('update', updateWithIcon(42)));
+  assert.throws(() => validate('update', updateWithIcon('si:../brands/github')));
+  assert.throws(() => validate('update', updateWithIcon('data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=')));
+  assert.throws(() => validate('update', updateWithIcon('data:image/png;base64,aGVsbG8=')));
+  assert.throws(() => validate('update', updateWithIcon(hugeIcon)));
   assert.doesNotThrow(() => validate('list'));
   assert.throws(() => validate('list', {}));
   assert.throws(() => validate('export', { id: [] }));

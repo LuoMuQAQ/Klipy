@@ -44,8 +44,8 @@ app.once('browser-window-created', (_event, win) => {
     const js = (code) => wc.executeJavaScript(code);
     try {
       assert.equal(process.versions.electron, require('../package.json').devDependencies.electron);
-      assert.equal(win.getSize()[0], 400);
-      assert(Math.abs(win.getSize()[1] - 620) <= 2);
+      const [width, height] = win.getContentSize();
+      assert(Math.abs(width - 400) <= 2 && Math.abs(height - 620) <= 2, `Unexpected content size: ${width}×${height}`);
       assert.equal(win.isResizable(), false);
       assert.equal(wc.getURL(), dev ? process.env.AUTHENTICATOR_DEV_URL : 'klipy://app/index.html');
       await until(() => js("document.body.innerText.includes('fixture@example.com')"), 'account card');
@@ -64,6 +64,115 @@ app.once('browser-window-created', (_event, win) => {
       })()`));
       // Custom non-30s period card renders its own per-card countdown badge.
       assert(await js("document.querySelector('[data-slot=\"custom-period\"]')?.textContent.includes('/ 2s')"));
+
+      // Account icon: pick from the bundled library, upload a custom image, then reset to auto.
+      const openEdit = async () => {
+        await js(`(() => {
+          const card = [...document.querySelectorAll('button')].find(el => el.innerText.includes('fixture@example.com'));
+          card.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 220, clientY: 240 }));
+        })()`);
+        await until(() => js("[...document.querySelectorAll('[role=menuitem]')].some(el => el.innerText === '编辑')"), 'account context menu');
+        await js("[...document.querySelectorAll('[role=menuitem]')].find(el => el.innerText === '编辑').click()");
+        await until(() => js("document.querySelector('#account-icon-btn') !== null"), 'edit dialog');
+      };
+      const openIconPicker = async () => {
+        await js("document.querySelector('#account-icon-btn').click()");
+        await until(() => js("document.querySelector('[data-icon-picker]') !== null"), 'icon picker');
+      };
+      const saveEdit = () => js("document.querySelector('#save-account-btn').click()");
+
+      await openEdit();
+      await openIconPicker();
+      assert(await js(`(() => {
+        const grid = document.querySelector('[data-icon-grid]');
+        const choose = document.querySelector('#choose-icon-image-btn');
+        const top = choose.getBoundingClientRect().top;
+        const first = grid.querySelector('button');
+        const last = [...grid.querySelectorAll('button')].at(-1);
+        const topGap = first.getBoundingClientRect().top - grid.getBoundingClientRect().top;
+        grid.scrollTop = grid.scrollHeight;
+        const bottomGap = grid.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom;
+        grid.scrollTop = 0;
+        return topGap >= 5 && bottomGap >= 5 && top === choose.getBoundingClientRect().top &&
+          !grid.querySelector('[data-icon-slug="xiaomi"], [data-icon-slug="netflix"]');
+      })()`));
+      await js("document.querySelector('[data-icon-picker] [data-icon-slug=\"canva\"]').click()");
+      await until(() => js("!document.querySelector('[data-icon-picker]')"), 'icon picker closed after library choice');
+      await saveEdit();
+      await until(() => js("!document.querySelector('[role=dialog]')"), 'library icon saved');
+      await until(() => js("[...document.images].some(img => img.src.endsWith('/brands/si/canva.svg') && img.naturalWidth > 0)"), 'library icon rendered');
+
+      await openEdit();
+      await openIconPicker();
+      await until(() => js("document.querySelector('[data-icon-picker] input[type=file]') !== null"), 'icon upload input');
+      const uploadIcon = () => js(`(async () => {
+        const input = document.querySelector('[data-icon-picker] input[type=file]');
+        const source = document.createElement('canvas');
+        source.width = 240;
+        source.height = 120;
+        const ctx = source.getContext('2d');
+        ctx.fillStyle = '#f00';
+        ctx.fillRect(0, 0, 120, 120);
+        ctx.fillStyle = '#00f';
+        ctx.fillRect(120, 0, 120, 120);
+        const blob = await new Promise(resolve => source.toBlob(resolve));
+        const upload = new DataTransfer();
+        upload.items.add(new File([blob], 'icon.png', { type: 'image/png' }));
+        input.files = upload.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+      await uploadIcon();
+      await until(() => js("!!document.querySelector('[data-icon-crop]')"), 'crop editor opens before applying');
+      assert(await js(`(() => {
+        const crop = document.querySelector('[data-icon-crop]');
+        const help = crop.querySelector('canvas').getAttribute('aria-description');
+        return !!help && !crop.innerText.includes(help);
+      })()`));
+      await js("document.querySelector('#cancel-icon-crop-btn').click()");
+      await until(() => js("!!document.querySelector('[data-icon-picker]')"), 'cancel crop returns to picker');
+      assert(await js("document.querySelector('[data-icon-slug=canva]').getAttribute('aria-pressed') === 'true'"));
+      await uploadIcon();
+      await until(() => js("!!document.querySelector('[data-icon-crop] canvas')"), 'crop preview');
+      await js(`(() => {
+        const slider = document.querySelector('[data-icon-crop] input[type=range]');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(slider, '2');
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        const canvas = document.querySelector('[data-icon-crop] canvas');
+        canvas.focus();
+        for (let i = 0; i < 25; i++) canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      })()`);
+      await until(() => js(`(() => {
+        const crop = document.querySelector('[data-icon-crop]');
+        return crop.textContent.includes('200%') && crop.querySelector('canvas').getContext('2d').getImageData(0, 128, 1, 1).data[2] === 255;
+      })()`), 'zoomed crop preview moved right');
+      await js("document.querySelector('#confirm-icon-crop-btn').click()");
+      await until(() => js("!document.querySelector('[data-icon-crop], [data-icon-picker]')"), 'confirmed crop returns to edit');
+      assert.equal(await js("authenticatorAPI.listAccounts().then(list => list.find(a => a.id === 'fixture').icon)"), 'si:canva');
+      await saveEdit();
+      await until(() => js("!document.querySelector('[role=dialog]')"), 'custom icon saved');
+      assert(await js(`(async () => {
+        const account = (await authenticatorAPI.listAccounts()).find(a => a.id === 'fixture');
+        if (!account.icon.startsWith('data:image/png;base64,')) return false;
+        const image = new Image();
+        image.src = account.icon;
+        await image.decode();
+        if (image.naturalWidth !== 128 || image.naturalHeight !== 128) return false;
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0);
+        return Array.from(ctx.getImageData(0, 64, 1, 1).data).join(',') === '0,0,255,255';
+      })()`));
+      await until(() => js("[...document.images].some(img => img.src.startsWith('data:image/png;base64,') && img.naturalWidth === 128)"), 'custom icon rendered');
+
+      await openEdit();
+      await openIconPicker();
+      await until(() => js("document.querySelector('[data-icon-picker] [data-icon-auto]') !== null"), 'auto icon option');
+      await js("document.querySelector('[data-icon-picker] [data-icon-auto]').click()");
+      await until(() => js("!document.querySelector('[data-icon-picker]')"), 'icon picker closed after auto choice');
+      await saveEdit();
+      await until(() => js("!document.querySelector('[role=dialog]')"), 'auto icon restored');
+      await until(() => js("[...document.images].some(img => img.src.endsWith('/brands/si/github.svg') && img.naturalWidth > 0)"), 'auto icon rendered');
+      assert.equal(await js("authenticatorAPI.listAccounts().then(list => list.find(a => a.id === 'fixture').icon)"), '');
 
       // Keyboard Shift+F10 opens the card context menu cleanly.
       await js(`(() => {

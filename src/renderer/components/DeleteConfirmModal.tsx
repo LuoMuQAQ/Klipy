@@ -9,6 +9,7 @@ import {
 } from '@heroui/react';
 import { Trash2 } from 'lucide-react';
 import { Account } from '../types';
+import { t } from '../i18n';
 
 interface DeleteConfirmModalProps {
   account: Account | null;
@@ -57,17 +58,20 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
           <>
             <ModalHeader className="flex items-center gap-1.5 text-danger text-sm font-semibold pb-1">
               <Trash2 size={15} />
-              <span>确认删除</span>
+              <span>{t('confirmDelete')}</span>
             </ModalHeader>
             <ModalBody className="py-2 text-sm text-foreground">
-              确定要删除 <span className="font-semibold text-primary">{account.issuer}</span> ({account.account}) 吗？
+              {t('deleteAccountQuestion', {
+                issuer: account.issuer,
+                account: account.account,
+              })}
             </ModalBody>
             <ModalFooter className="pt-2 pb-3">
               <Button size="sm" variant="light" onPress={modalClose} isDisabled={deleting}>
-                取消
+                {t('cancel')}
               </Button>
               <Button size="sm" color="danger" onPress={confirm} isLoading={deleting}>
-                删除
+                {t('delete')}
               </Button>
             </ModalFooter>
           </>

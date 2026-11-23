@@ -229,7 +229,7 @@ namespace AuthenticatorBackend
             }
         }
 
-        public AccountDto? UpdateAccount(string id, string issuer, string account, string groupId)
+        public AccountDto? UpdateAccount(string id, string issuer, string account, string groupId, string? icon = null)
         {
             lock (_lock)
             {
@@ -237,11 +237,20 @@ namespace AuthenticatorBackend
                 var item = _accounts.FirstOrDefault(a => a.Id == id);
                 if (item == null) return null;
 
+                string? nextIcon = null;
+                if (icon != null)
+                {
+                    nextIcon = AccountIcon.Normalize(icon);
+                    if (!AccountIcon.IsValid(nextIcon))
+                        throw new ArgumentException("图标格式无效。");
+                }
+
                 item = item with
                 {
                     Issuer = string.IsNullOrWhiteSpace(issuer) ? item.Issuer : issuer.Trim(),
                     Account = string.IsNullOrWhiteSpace(account) ? item.Account : account.Trim(),
-                    GroupId = cleanGroupId
+                    GroupId = cleanGroupId,
+                    Icon = nextIcon ?? item.Icon
                 };
                 var dto = ToAccountDto(item, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
                 Commit(_groups, _accounts.Select(a => a.Id == id ? item : a).ToList());
@@ -485,6 +494,7 @@ namespace AuthenticatorBackend
                 Digits = acc.Digits,
                 Algorithm = acc.Algorithm,
                 GroupId = acc.GroupId,
+                Icon = acc.Icon ?? "",
                 CreatedAt = acc.CreatedAt
             };
         }

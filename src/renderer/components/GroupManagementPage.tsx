@@ -20,6 +20,7 @@ import {
 import { Reorder, useReducedMotion, type Transition } from 'framer-motion';
 import { ArrowDown, ArrowUp, Folder, FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react';
 import type { Account, Group } from '../types';
+import { plural, t } from '../i18n';
 import { formatError } from '../utils/errors';
 
 const REORDER_TRANSITION = {
@@ -98,7 +99,7 @@ export function GroupManagementPage({
     if (busyRef.current) return;
     const clean = newName.trim();
     if (!clean) {
-      setCreateError('请输入分组名称。');
+      setCreateError(t('enterGroupName'));
       return;
     }
 
@@ -109,7 +110,7 @@ export function GroupManagementPage({
       await window.authenticatorAPI.addGroup(clean);
       onCreateClose();
       await onChanged();
-      addToast({ title: `已创建分组「${clean}」`, color: 'success', timeout: 1_400 });
+      addToast({ title: t('groupCreated', { name: clean }), color: 'success', timeout: 1_400 });
     } catch (err) {
       setCreateError(formatError(err));
     } finally {
@@ -134,7 +135,7 @@ export function GroupManagementPage({
     if (!renameTarget || busyRef.current) return;
     const clean = draft.trim();
     if (!clean) {
-      setRenameError('请输入分组名称。');
+      setRenameError(t('enterGroupName'));
       return;
     }
 
@@ -145,7 +146,7 @@ export function GroupManagementPage({
       await window.authenticatorAPI.renameGroup(renameTarget.id, clean);
       setRenameTarget(null);
       await onChanged();
-      addToast({ title: '分组已重命名', color: 'success', timeout: 1_400 });
+      addToast({ title: t('groupRenamed'), color: 'success', timeout: 1_400 });
     } catch (err) {
       setRenameError(formatError(err));
     } finally {
@@ -165,8 +166,13 @@ export function GroupManagementPage({
       addToast({
         title:
           result.removedAccounts > 0
-            ? `已删除分组，${result.removedAccounts} 个账号一并删除`
-            : '分组已删除',
+            ? plural(
+                result.removedAccounts,
+                t('groupDeletedWithAccountsOne'),
+                t('groupDeletedWithAccountsMany'),
+                { count: result.removedAccounts },
+              )
+            : t('groupDeleted'),
         color: 'success',
         timeout: 1_800,
       });
@@ -226,15 +232,15 @@ export function GroupManagementPage({
 
   const groupMenuItems = useMemo(() => {
     const items: Array<{ key: string; label: string; icon: React.ReactNode; isDanger?: boolean }> = [
-      { key: 'rename', label: '重命名', icon: <Pencil size={14} /> },
+      { key: 'rename', label: t('rename'), icon: <Pencil size={14} /> },
     ];
     if (groups.length > 1) {
       items.push(
-        { key: 'moveUp', label: '上移', icon: <ArrowUp size={14} /> },
-        { key: 'moveDown', label: '下移', icon: <ArrowDown size={14} /> },
+        { key: 'moveUp', label: t('moveUp'), icon: <ArrowUp size={14} /> },
+        { key: 'moveDown', label: t('moveDown'), icon: <ArrowDown size={14} /> },
       );
     }
-    items.push({ key: 'delete', label: '删除', icon: <Trash2 size={14} />, isDanger: true });
+    items.push({ key: 'delete', label: t('delete'), icon: <Trash2 size={14} />, isDanger: true });
     return items;
   }, [groups.length]);
 
@@ -254,9 +260,9 @@ export function GroupManagementPage({
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                 <FolderPlus size={20} />
               </div>
-              <span className="text-sm font-semibold text-foreground">暂无分组</span>
+              <span className="text-sm font-semibold text-foreground">{t('noGroups')}</span>
               <span className="text-xs leading-5 text-default-500">
-                点击右上角「+」或下方按钮新建分组
+                {t('createGroupHint')}
               </span>
               <Button
                 size="sm"
@@ -265,7 +271,7 @@ export function GroupManagementPage({
                 startContent={<Plus size={14} />}
                 onPress={onCreateOpen}
               >
-                新建分组
+                {t('createGroup')}
               </Button>
             </CardBody>
           </Card>
@@ -318,7 +324,9 @@ export function GroupManagementPage({
                             : 'bg-default-100 text-default-500'
                         }`}
                       >
-                        {count > 0 ? `${count} 个账号` : '暂无账号'}
+                        {count > 0
+                          ? plural(count, t('accountCountOne'), t('accountCountMany'), { count })
+                          : t('noAccountsShort')}
                       </span>
                     </CardBody>
                   </Card>
@@ -352,7 +360,7 @@ export function GroupManagementPage({
           />
         </DropdownTrigger>
         <DropdownMenu
-          aria-label="分组操作"
+          aria-label={t('groupActionsAria')}
           items={groupMenuItems}
           disabledKeys={groupMenuDisabledKeys}
           onAction={(key) => {
@@ -401,7 +409,7 @@ export function GroupManagementPage({
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
                   <FolderPlus size={14} />
                 </span>
-                <span>新建分组</span>
+                <span>{t('createGroup')}</span>
               </ModalHeader>
               <ModalBody className="gap-2.5 py-2">
                 <Input
@@ -409,7 +417,7 @@ export function GroupManagementPage({
                   size="sm"
                   radius="md"
                   variant="bordered"
-                  label="分组名称"
+                  label={t('groupNameLabel')}
                   value={newName}
                   onValueChange={(value) => {
                     setNewName(value);
@@ -435,7 +443,7 @@ export function GroupManagementPage({
               </ModalBody>
               <ModalFooter className="pb-3 pt-2">
                 <Button size="sm" variant="light" isDisabled={creating} onPress={modalClose}>
-                  取消
+                  {t('cancel')}
                 </Button>
                 <Button
                   size="sm"
@@ -444,7 +452,7 @@ export function GroupManagementPage({
                   isDisabled={!newName.trim()}
                   onPress={() => void handleCreate()}
                 >
-                  创建
+                  {t('create')}
                 </Button>
               </ModalFooter>
             </>
@@ -468,7 +476,7 @@ export function GroupManagementPage({
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
                   <Pencil size={14} />
                 </span>
-                <span>重命名分组</span>
+                <span>{t('renameGroupTitle')}</span>
               </ModalHeader>
               <ModalBody className="gap-2.5 py-2">
                 <Input
@@ -476,7 +484,7 @@ export function GroupManagementPage({
                   size="sm"
                   radius="md"
                   variant="bordered"
-                  label="分组名称"
+                  label={t('groupNameLabel')}
                   value={draft}
                   onValueChange={(value) => {
                     setDraft(value);
@@ -502,7 +510,7 @@ export function GroupManagementPage({
               </ModalBody>
               <ModalFooter className="pb-3 pt-2">
                 <Button size="sm" variant="light" isDisabled={renaming} onPress={modalClose}>
-                  取消
+                  {t('cancel')}
                 </Button>
                 <Button
                   size="sm"
@@ -511,7 +519,7 @@ export function GroupManagementPage({
                   isDisabled={!draft.trim()}
                   onPress={() => void handleRename()}
                 >
-                  保存
+                  {t('save')}
                 </Button>
               </ModalFooter>
             </>
@@ -535,28 +543,31 @@ export function GroupManagementPage({
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-danger/10 text-danger">
                   <Trash2 size={14} />
                 </span>
-                <span>删除分组</span>
+                <span>{t('deleteGroupTitle')}</span>
               </ModalHeader>
               <ModalBody className="gap-2 py-2 text-sm text-foreground">
                 <p className="m-0 leading-6">
-                  确定要删除分组
-                  <span className="px-1 font-semibold text-primary">{deleteTarget?.name}</span>
-                  吗？
+                  {t('deleteGroupQuestion', { name: deleteTarget?.name ?? '' })}
                 </p>
                 {deleteCount > 0 ? (
                   <div className="rounded-medium bg-danger-50 px-3 py-2 text-xs leading-5 text-danger">
-                    组内 {deleteCount} 个账号会被一并删除，此操作无法撤销。
+                    {plural(
+                      deleteCount,
+                      t('deleteGroupWarningOne'),
+                      t('deleteGroupWarningMany'),
+                      { count: deleteCount },
+                    )}
                   </div>
                 ) : (
-                  <p className="m-0 text-xs leading-5 text-default-500">该分组下暂无账号。</p>
+                  <p className="m-0 text-xs leading-5 text-default-500">{t('groupHasNoAccounts')}</p>
                 )}
               </ModalBody>
               <ModalFooter className="pb-3 pt-2">
                 <Button size="sm" variant="light" onPress={modalClose}>
-                  取消
+                  {t('cancel')}
                 </Button>
                 <Button size="sm" color="danger" onPress={() => void confirmDelete()}>
-                  确认删除
+                  {t('confirmDelete')}
                 </Button>
               </ModalFooter>
             </>

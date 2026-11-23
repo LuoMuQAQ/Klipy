@@ -17,6 +17,8 @@ const backend = createBackendClient(root, {
 app.setAppUserModelId('io.github.luomuqaq.klipy');
 let mainWindow;
 
+const usesChinese = () => app.getLocale().toLowerCase().startsWith('zh');
+
 protocol.registerSchemesAsPrivileged([{ scheme, privileges: { standard: true, secure: true } }]);
 
 function handle(channel, callback) {
@@ -69,7 +71,9 @@ function registerIpc() {
 
 async function createWindow() {
   if (!isDev && !existsSync(indexPath)) {
-    throw new Error('未找到前端构建产物。请先运行 npm run build:vite。');
+    throw new Error(usesChinese()
+      ? '未找到前端构建产物。请先运行 npm run build:vite。'
+      : 'Renderer build not found. Run npm run build:vite first.');
   }
 
   const partition = session.fromPartition(rendererSession);
@@ -95,6 +99,8 @@ async function createWindow() {
       webSecurity: true,
       devTools: isDev,
       session: partition,
+      // 自动语言检测：系统默认语言随渲染进程启动参数传入 preload。
+      additionalArguments: [`--klipy-locale=${encodeURIComponent(app.getLocale())}`],
     },
   });
   mainWindow = win;
@@ -121,7 +127,7 @@ app.whenReady().then(() => {
   registerIpc();
   return createWindow();
 }).catch((error) => {
-  dialog.showErrorBox('Klipy 启动失败', error.message);
+  dialog.showErrorBox(usesChinese() ? 'Klipy 启动失败' : 'Klipy failed to start', error.message);
   app.quit();
 });
 app.on('window-all-closed', () => app.quit());

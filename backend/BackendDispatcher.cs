@@ -141,7 +141,17 @@ namespace AuthenticatorBackend
                             string account = ReadString(req.Params, "account");
                             string groupId = ReadString(req.Params, "groupId");
 
-                            var updated = store.UpdateAccount(id, issuer, account, groupId);
+                            // 未提供 icon 时保留原图标；传空字符串表示恢复自动匹配。
+                            string? icon = null;
+                            if (req.Params is { ValueKind: JsonValueKind.Object } updateParams &&
+                                updateParams.TryGetProperty("icon", out var iconProp))
+                            {
+                                if (iconProp.ValueKind != JsonValueKind.String)
+                                    throw new ArgumentException("图标格式无效。");
+                                icon = iconProp.GetString() ?? "";
+                            }
+
+                            var updated = store.UpdateAccount(id, issuer, account, groupId, icon);
                             if (updated != null)
                             {
                                 response.Success = true;

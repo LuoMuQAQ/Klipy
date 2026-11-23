@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import { t } from '../i18n';
 
 const PERIOD_MS = 30_000;
 const SECOND_MS = 1_000;
@@ -54,11 +55,11 @@ export function TotpProgress({ onTick }: TotpProgressProps) {
   return (
     <div
       role="progressbar"
-      aria-label="标准 30 秒周期参考"
+      aria-label={t('standardPeriod')}
       aria-valuemin={0}
       aria-valuemax={PERIOD_MS / SECOND_MS}
       aria-valuenow={seconds}
-      aria-valuetext={`剩余 ${seconds} 秒`}
+      aria-valuetext={t('remainingSeconds', { count: seconds })}
       className="h-1 w-full shrink-0 overflow-hidden bg-default-200"
     >
       <div ref={indicatorRef} data-slot="indicator" className={`h-full w-full origin-left ${color}`} />

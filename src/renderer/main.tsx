@@ -2,8 +2,11 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { HeroUIProvider, ToastProvider } from '@heroui/react';
 import App from './App';
+import { localizeDocument } from './i18n';
 import './fonts/misans/MiSansVF.min.css';
 import './index.css';
+
+localizeDocument();
 
 window.addEventListener('error', (e) => {
   if (e.message && e.message.includes('ResizeObserver')) return;

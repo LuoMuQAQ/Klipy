@@ -32,7 +32,8 @@
 
 1. **现代美观的 HeroUI 设计方案**：
    - 采用 HeroUI (`@heroui/react`) 组件库打造亮色主题（Light Mode，浅灰画布 + 纯白卡片 + 靛蓝主色）。
-   - 账号头像使用 [Simple Icons](https://simpleicons.org)（CC0）内置的 85 个常见品牌图标（OpenAI、Anthropic、Muse、Mozilla、Microsoft、GitHub、Slack、微信、QQ 等），先按服务名称、再按账号自动匹配；未识别服务显示名称缩写。素材说明见 `public/brands/SOURCES.md`。
+   - 账号头像提供 83 个可选离线品牌图标，先按服务名称、再按账号自动匹配；也可在右键「编辑」首条点击圆形图标，从独立弹窗手动选择，或选择 PNG / JPEG / WebP / GIF / BMP / ICO / AVIF / SVG 自定义图片。图片可先拖动、缩放裁切，确认后生成 128×128 PNG，随账号加密保存；未识别服务显示名称缩写。素材及 2FA 审查见 [`public/brands/SOURCES.md`](public/brands/SOURCES.md)。
+   - 界面自动跟随系统默认语言：简体中文或英语，无需手动切换；品牌图标名称与默认排序也随语言变化（中文按拼音、英文按 A-Z）。
    - 顶部 30 秒线性进度条（`TotpProgress`，Web Animations API 与系统时钟对齐），剩余 10 秒/5 秒时自动变黄/变红；非 30 秒周期账号会在卡片上额外显示独立倒计时角标，并按各自周期刷新验证码。
    - 一键快速复制 TOTP 动态码（单击卡片，写入 Windows 隐私剪贴板），支持鼠标右键或键盘 `Shift+F10` 打开菜单以及 `Alt+↑/↓` 调整排序。
 
@@ -115,6 +116,7 @@ npm run build:backend
 │   ├── MigrationParser.cs     # Google Authenticator 迁移链接解析
 │   ├── VaultFile.cs           # KLIPY-DPAPI-2 加密、校验、迁移与原子落盘
 │   ├── VaultStore.cs          # 统一账号与分组管理、批量去重、排序与导出
+│   ├── AccountIcon.cs         # 账号图标格式与 128×128 PNG 校验
 │   ├── PrivateClipboard.cs    # Windows 隐私剪贴板写入
 │   ├── AppPaths.cs            # 数据目录解析（支持 AUTHENTICATOR_DATA_DIR 覆盖）
 │   ├── BackendDispatcher.cs   # 业务分发（账号 / 批量导入 / 分组 / 迁移）
@@ -129,9 +131,11 @@ npm run build:backend
 ├── src/
 │   ├── main/                  # Electron 主进程（main / backend-client / ipc-validation / renderer-security / preload）
 │   └── renderer/              # 前端渲染层 (HeroUI + React)
-│       ├── components/        # TitleBar / GroupFilterBar / GroupManagementPage / AccountCard / Modals / TotpProgress
-│       ├── utils/errors.ts    # IPC 错误文案清洗
-│       ├── brandIcons.ts      # Simple Icons 品牌匹配表
+│       ├── components/        # TitleBar / GroupFilterBar / GroupManagementPage / AccountCard / Modals / AccountIconPickerModal / TotpProgress
+│       ├── utils/errors.ts    # IPC 错误文案清洗与后端错误英译
+│       ├── utils/accountIcon.ts # 账号图标解析、裁切与 128×128 PNG 缩放
+│       ├── i18n.ts            # 系统语言检测与中英文案
+│       ├── brandIcons.ts      # Simple Icons 品牌匹配表与双语图标库标签
 │       ├── App.tsx            # 主应用页面、分组筛选、拖拽与键盘交互
 │       ├── main.tsx           # 入口与 HeroUIProvider / ToastProvider 配置
 │       ├── index.css          # 全局样式与自定义滚动条

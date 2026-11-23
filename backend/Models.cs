@@ -32,6 +32,10 @@ namespace AuthenticatorBackend
         [JsonPropertyName("groupId")]
         public string GroupId { get; set; } = "";
 
+        /// <summary>账号图标；空字符串表示自动匹配，详见 AccountIcon。</summary>
+        [JsonPropertyName("icon")]
+        public string Icon { get; set; } = "";
+
         [JsonPropertyName("createdAt")]
         public long CreatedAt { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     }
@@ -67,6 +71,10 @@ namespace AuthenticatorBackend
 
         [JsonPropertyName("groupId")]
         public string GroupId { get; set; } = "";
+
+        /// <summary>账号图标；空字符串表示自动匹配，详见 AccountIcon。</summary>
+        [JsonPropertyName("icon")]
+        public string Icon { get; set; } = "";
 
         [JsonPropertyName("createdAt")]
         public long CreatedAt { get; set; }

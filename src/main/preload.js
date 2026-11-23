@@ -1,6 +1,16 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+let locale = 'en';
+try {
+  const prefix = '--klipy-locale=';
+  const arg = (process.argv || []).find((value) => value.startsWith(prefix));
+  if (arg) locale = decodeURIComponent(arg.slice(prefix.length));
+} catch {
+  // Keep the English fallback when the renderer does not expose process.argv.
+}
+
 contextBridge.exposeInMainWorld('authenticatorAPI', {
+  locale,
   listAccounts: () => ipcRenderer.invoke('authenticator:list'),
   addAccount: (params) => ipcRenderer.invoke('authenticator:add', params),
   addAccountsBatch: (params) => ipcRenderer.invoke('authenticator:addBatch', params),

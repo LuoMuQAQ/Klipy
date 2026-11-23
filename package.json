@@ -1,6 +1,6 @@
 {
   "name": "klipy",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Klipy - Windows 轻量级 2FA / TOTP 身份验证器 (HeroUI + Electron + C#)",
   "author": "LuoMuQAQ",
   "scripts": {
